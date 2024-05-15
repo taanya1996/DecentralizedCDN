@@ -1,6 +1,18 @@
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
+import subprocess
+
+def clear_blocklist():
+    '''
+    Clears the file /etc/nginx/blocked_ips.conf
+    '''
+    blocklist_file = '/etc/nginx/blocked_ips.conf'
+    with open(blocklist_file, 'w') as file:
+        file.write("# Blocked IPs\n")
+        
+    subprocess.run(['nginx', '-s', 'reload'])
+    
 
 def parse_line(line):
     """ Parse the log line to extract the IP and the timestamp. """
@@ -10,15 +22,31 @@ def parse_line(line):
     timestamp = datetime.strptime(fields[3][1:], '%d/%b/%Y:%H:%M:%S')
     return ip, timestamp
 
+def update_blocklist(blocked_ips):
+    """ Update the Nginx blocklist configuration file with the blocked IPs. """
+    blocklist_file = '/etc/nginx/blocked_ips.conf'
+    with open(blocklist_file, 'w') as file:
+        for ip in blocked_ips:
+            file.write(f"deny {ip};\n")
+    # Reload Nginx to apply the new blocklist
+    subprocess.run(['nginx', '-s', 'reload'])
+
+    
+
 def rate_tracking():
     '''
     The function continously parses the new log entry in the nginx log to track the rate of request from each IP.
     '''
+    
+    clear_blocklist()
+    
     log_file = '/var/log/nginx/access.log'
     request_threshold = 100
     window_duration = timedelta(minutes=5)
     
     windows = defaultdict(deque) #Dictionary with IP as key and deque as values holding the timestamp
+    blocked_ips = set()
+    
     with open(log_file, 'r') as file:
         file.seek(0,2)
         
@@ -37,7 +65,16 @@ def rate_tracking():
             
             #check whether the corresponding IP has exceeded the threshold
             if len(windows[ip]) >= request_threshold:
+                if ip not in blocked_ips:
+                    blocked_ips.add(ip)
+                    update_blocklist(blocked_ips)
                 print(f"Alert: {ip} has made {len(windows[ip])} requests in the last 5 minutes.")
-                
+            else:
+                if ip in blocked_ips:
+                    blocked_ips.remove(ip)
+                    update_blocklist(blocked_ips)
+                    print(f"Alert: IP {ip} has been removed from blocked list. ", ip)
+                    
 if __name__ == '__main__':
+    
     rate_tracking()    

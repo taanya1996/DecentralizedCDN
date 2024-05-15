@@ -5,7 +5,7 @@ Wait for about 5 min and then make another 200 requests in the next 5 min.
 
 import requests
 import time
-
+        
 def send_requests(target_url, uri_list, total_requests, window_seconds):
     '''
     The function makes a total of 'total_requests' requests within window_seconds 
@@ -24,7 +24,7 @@ def send_requests(target_url, uri_list, total_requests, window_seconds):
         time.sleep(interval)
     
 if __name__ == "__main__":
-    target_url = "http://54.193.42.240" 
+    target_url = "http://13.52.182.233" #CDN Node IP
     uri_list = ['/', '/project_overview', '/problem_statement', '/architecture', '/application_components', '/metrics', '/testing' ]# Replace with your desired endpoint
     request_count = 200  # Number of requests
     window_seconds = 300  # Duration of the window in seconds (5 minutes)
