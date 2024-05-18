@@ -33,7 +33,7 @@ def update_blocklist(blocked_ips):
 
     
 
-def rate_tracking():
+def traffic_rate_tracking():
     '''
     The function continously parses the new log entry in the nginx log to track the rate of request from each IP.
     '''
