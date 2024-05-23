@@ -13,16 +13,16 @@ class current_node:
         self.ready_sent_messages = set()
         self.delivered_messages = set()
         self.buffer = set()
-        self.next_message_id = 1
+        self.next_message_id = 0
         
 class Node:
     def __init__(self, id, IP):
         self.id = id
         self.ip = IP
 
-class vertex:
-    def __init__(self, id, round, source, block, strong_edges, weak_edges):
-        self.vertex_id = id,
+class Vertex:
+    def __init__(self, id=None, round=None, source=None, block=None, strong_edges=None, weak_edges=None):
+        self.vertex_id = id #vertex_id is of the form node_id:round_no
         self.round = round
         self.source = source
         self.block = block
@@ -31,11 +31,12 @@ class vertex:
     
     def to_dict(self):
         return {
+            'vertex_id' : self.vertex_id,
             'round' : self.round,
             'source': self.source,
             'block' : self.block,  
-            'strong_edges': [ edge.vertex_id for edge in self.strong_edges],
-            'weak_edges': [edge.vertex_id for edge in self.weak_edges]
+            'strong_edges': [ edge.vertex_id for edge in self.strong_edges] if self.strong_edges else [],
+            'weak_edges': [edge.vertex_id for edge in self.weak_edges] if self.weak_edges else []
         }
 
 class Message:

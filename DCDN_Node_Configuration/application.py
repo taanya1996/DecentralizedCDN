@@ -13,20 +13,26 @@ import definitions
 app = Flask(__name__)
 nodes = {} # {id: CDN_Node}
 CDN_IPs = ['54.215.43.60', '34.201.142.18', '52.74.244.78', '18.132.44.229']
-my_node = definitions.current_node('54.215.43.60', 1, 4, 1)
+pbft_port = 8080
+my_node = definitions.current_node(IP='54.215.43.60',node_id=1, total_nodes= 4, f=1)
 pbft_control_messages = deque() #these are the reliable broadcast messages. 
 # Vertices for the DAGRider is above the reliable Broadcast layer.
-
+DAG = defaultdict(set)
+DAG_buffer = []
 
 def initialize_nodes():
     for i in range(1, my_node.total_nodes+1):
-        nodes[i] =  definitions.Node(i, CDN_IPs[i])
+        nodes[i] =  definitions.Node(i, CDN_IPs[i-1])
             
 #--------------RELIABLE BROADCAST SECTION------------------
 
 def reliable_bcast(vertex):
+    '''
+    param: vertex - Object of Vertex class
+    '''
+    my_node.next_message_id +=1
     new_message = definitions.Message()
-    message_id = str(my_node.node_id)+str(my_node.next_message_id)
+    message_id = str(my_node.node_id)+':'+str(my_node.next_message_id)
     new_message.id = message_id
     new_message.message = vertex
     new_message.type = 'INITIAL'
@@ -40,9 +46,9 @@ def reliable_bcast(vertex):
 def send_initial(message):
     #send messages
     for node in nodes:
-        if node.id != my_node.node_id:
+        if nodes[node].id != my_node.node_id:
             #send INITIAL Messages to all
-            http_send_POST(message, node.ip)
+            http_send_POST(message, nodes[node].ip)
             
         else:
             #how to send a message to self?
@@ -66,8 +72,10 @@ def broadcast_echo(message):
     new_message['sender'] = my_node.node_id
     
     for node in nodes:
-        if node.id != my_node.node_id:
-            http_send_POST(new_message, node.ip)
+        #new_message has to be serialized
+        new_message = json.dumps(new_message)
+        if nodes[node].id != my_node.node_id:
+            http_send_POST(new_message, nodes[node].ip)
         else:
             #send to self node
             pbft_control_messages.append(new_message)
@@ -75,9 +83,10 @@ def broadcast_echo(message):
 
 def handle_echo(message):
     message_id = message['id']
-    my_node.echo_messages[message_id].add(message)
+    my_node.echo_messages[message_id].add(message['sender'])
     
     if len(my_node.echo_messages[message_id]) >= 2 * my_node.f + 1:
+        #Am I handling duplicate echoes?
         if message_id not in my_node.ready_sent_messages:
             broadcast_ready(message)
         
@@ -93,8 +102,10 @@ def broadcast_ready(message):
     new_message['sender'] = my_node.node_id
     
     for node in nodes:
-        if node.id != my_node.node_id:
-            http_send_POST(new_message, node.ip)
+        #new_message has to be serialized
+        new_message = json.dumps(new_message)
+        if nodes[node].id != my_node.node_id:
+            http_send_POST(new_message, nodes[node].ip)
         else:
             #send to self
             pbft_control_messages.append(new_message)
@@ -102,7 +113,7 @@ def broadcast_ready(message):
 
 def handle_ready(message):
     message_id = message['id']
-    my_node.ready_messages[message_id].add(message)
+    my_node.ready_messages[message_id].add(message['sender'])
     if len(my_node.ready_messages[message_id]) >= my_node.f +1 :
         #send ready if not already sent ; Ready to Ready Transition:
         if message_id not in my_node.ready_sent_messages:
@@ -114,7 +125,35 @@ def handle_ready(message):
 
 def deliver_message(message):
     #deliver to the DAG Layer
-    pass
+    #create a vertex out of message
+    new_vertex = definitions.Vertex()
+    new_vertex.vertex_id = message['message']['vertex_id']
+    new_vertex.round = message['message']['round']
+    new_vertex.source = message['message']['source']
+    new_vertex.block = message['message']['block']
+    strong_edges = []
+    for edge_id in message['message']['strong_edges']:
+        id_list = edge_id.split(":") #node_id:round_no
+        edge_round =  id_list[1]
+        for vertex in DAG[int(edge_round)]:
+            if edge_id == vertex.edge_id:
+                strong_edges.append(vertex)
+    
+    weak_edges =[]
+    for edge_id in message['message']['weak_edges']:
+        id_list = edge_id.split(":") #node_id:round_no
+        edge_round =  id_list[1]
+        for vertex in DAG[int(edge_round)]:
+            if edge_id == vertex.edge_id:
+                weak_edges.append(vertex)
+    
+    new_vertex.strong_edges = strong_edges
+    new_vertex.weak_edges = weak_edges
+    print('Accepted message: ', message['id'], 'delivered the vertex with id: ', new_vertex.vertex_id)
+    my_node.delivered_messages.add(message['id'])
+    #vertex is constructed. Deliver it to the DAG Layer
+    #TODO
+    
 
 
 
@@ -131,7 +170,8 @@ def pbft_endpoint():
         data = request.get_json()
         pbft_control_messages.append(data)
         # Process the control information
-        print(f"Received control information: {data}")
+        #print(f"Received control information: {data}")
+        #print(type(data))
 
         # You can add your processing logic here
 
@@ -142,7 +182,7 @@ def pbft_endpoint():
 
 
 def http_send_POST(message, IP):
-    url = 'http://' + IP + '/pbft'
+    url = 'http://' + IP + ':' + str(pbft_port) +'/pbft'
     #message_dict = message.to_dict()
     #message_json = json.dumps(message_dict)
     headers = {
@@ -163,7 +203,9 @@ def process_messages():
     while(True):
         if pbft_control_messages:
             message = pbft_control_messages.popleft()
-            print("Processed message: ", message)
+            print("Processed message: ", message, type(message))
+            while(type(message)==str):
+                message = json.loads(message) # for deserialization TODO Fix multiple levels of serialization
             if message['type']== 'INITIAL':
                 handle_initial(message)
             elif message['type'] == 'ECHO':
@@ -177,9 +219,11 @@ def process_messages():
     
     
 def start_flask():
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=pbft_port)
     
 if __name__ == '__main__':
+    initialize_nodes()
+    
     flask_thread = threading.Thread(target=start_flask)
     flask_thread.daemon = True
     
