@@ -18,7 +18,6 @@ my_node = definitions.current_node(IP='54.215.43.60',node_id=1, total_nodes= 4, 
 pbft_control_messages = deque() #these are the reliable broadcast messages. 
 # Vertices for the DAGRider is above the reliable Broadcast layer.
 DAG = defaultdict(set)
-DAG_buffer = []
 
 def initialize_nodes():
     for i in range(1, my_node.total_nodes+1):
@@ -153,11 +152,231 @@ def deliver_message(message):
     my_node.delivered_messages.add(message['id'])
     #vertex is constructed. Deliver it to the DAG Layer
     #TODO
+    r_delivery_to_DAG(new_vertex)
+    
+#--------------/RELIABLE BROADCAST SECTION------------------
+
+#--------------DAG Layer------------------
+def path(v,u):
+    '''
+    param: v,u : objects of Vertex class
+    '''
+    
+    visited = set()
+    
+    def dfs(current_vertex):
+        if current_vertex == u:
+            return True
+        
+        visited.add(current_vertex)
+        
+        for vertex in current_vertex.strong_edges + current_vertex.weak_edges:
+            if vertex not in visited:
+                if dfs(vertex):
+                    return True
+        return False
+    
+    return dfs(v)
+
+def strong_path(v,u):
+    '''
+    Strong Path from v to u
+    param: v,u : objects of Vertex class
+    '''
+    
+    visited = set()
+    
+    def dfs(current_vertex):
+        if current_vertex == u:
+            return True
+        
+        visited.add(current_vertex)
+        
+        for vertex in current_vertex.strong_edges:
+            if vertex not in visited:
+                if dfs(vertex):
+                    return True
+
+        return False
+    
+    return dfs(v)
+
+
+dag_round = 1 # TODO check the initial value
+dag_buffer = [] # or SET? TODO
+create_vertex = False
+block_to_propose = []
+
+def VertexInDAG(vertex):
+    '''
+    param vertex: Object of Vertex class
+    '''
+    v_round = vertex.round()
+    if vertex in DAG[v_round]:
+        return True
+    
+    return False
+
+def add_vertex_to_DAG(vertex):
+    '''
+    param vertex: Object of Vertex class
+    '''
+    v_round = vertex.round
+    DAG[v_round].add(vertex) 
+ 
+def set_weak_edges(vertex):
+    '''
+    param vertex: Object of Vertex class
+    ''' 
+    vertex.weak_edges = []
+    for round in range(vertex.round-2, 0, -1):
+        for u_vertex in DAG[round]:
+            if path(vertex, u_vertex)==False:
+                #this is the weak edge
+                vertex.weak_edge.append(u_vertex)
     
 
+def DAG_construction_procedure():
+    '''
+    This will be a thread continuously running to build the DAG
+    '''
+    while (True):
+        init_buf_len =  len(dag_buffer)
+        
+        to_remove_from_buffer = []
+        
+        for buf_ind in range(0, init_buf_len):
+            buffer_vertex = dag_buffer[buf_ind]
+            flag = True
+            if(buffer_vertex.round <= dag_round):
+                for vertex in buffer_vertex.strong_edges + buffer_vertex.weak_edges:
+                    if not VertexInDAG(vertex):
+                        #this buffer vertex cannot be added to dag
+                        flag = False
+                        break
+                if flag:
+                    #then add the buffer_vertex to dag and remove the buffer_vertex from dag_buffer.
+                    add_vertex_to_DAG(buffer_vertex)
+                    to_remove_from_buffer.append(buffer_vertex)
+            
+        if len(DAG[dag_round]) >= 2*my_node.f +1:
+            if dag_round%4==0:
+                # handle wave_ready
+                pass
+                
+            dag_round = dag_round +1
+            create_new_vertex(dag_round)
+            #Rbcast of the vertex.
+        
+def create_new_vertex(round):
+    '''
+    Procedure for creating new vertex.It should run as a thread.
+    '''
+ 
+    #create vertex for new round here
+    if(len(block_to_propose)==0):
+        #time.sleep(1)
+        block = []
+    else:
+        block = block_to_propose[0]
+        block_to_propose.pop(0)
+    
+    vertex_id = str(my_node.node_id) + ':' + round
+    source = my_node.node_id
+    strong_edges = list(DAG[round-1]) 
+    #TODO set weak edges
+    new_vertex = definitions.Vertex(vertex_id,round, source, block, strong_edges)
+    set_weak_edges(new_vertex)
+    reliable_bcast(new_vertex)
+        
+            
+        
+
+def r_delivery_to_DAG(vertex):
+    if len(vertex.strong_edges) >= 2 * my_node.f + 1:
+        dag_buffer.append(vertex) #TODO: check
+    
+#--------------/DAG Layer-----------------------
+
+#--------------DAGRider-----------------------
+decided_wave = 0
+delivered_dag_vertices = {}
+leader_stack = [] # this is a stack with push, pop functionalities.
+
+def choose_leader(w):
+    '''
+    selects leader node for the wave w. 
+    Need to implement global perfect coin here. 
+    '''
+    #TODO
+    pass
+    
+def get_wave_vertex_leader(w):
+    '''
+    Return the leader vertex for wave w.
+    param (w) : wave number.
+    '''
+    leader_node = choose_leader(w)
+    round_one_wave = (w-1)*4 + 1
+    for vertex in DAG[round_one_wave]:
+        if(vertex.source) == leader_node:
+            return vertex
+    
+    return None
+
+def strong_path_from_round4(w, v_leader):
+    '''
+    param: w - wave
+    v_leader = leader_vertex
+    '''
+    round =  4*w
+    
+    count = 0
+    for vertex in DAG[round]:
+        if strong_path(vertex, v_leader):
+            count +=1
+    
+    if count >= 2* my_node.f + 1:
+        return True
+    return False
+
+def wave_ready(w):
+    '''
+    The function gets signal from DAG construction layer
+    '''
+    leader_vertex = get_wave_vertex_leader(w)
+    if leader_vertex==None:
+        return 
+    if not strong_path_from_round4(w, leader_vertex):
+        return 
+    
+    leader_stack.append(leader_vertex)
+    for wave_prime in range(w-1,decided_wave, -1):
+        leader_vertex_prime = get_wave_vertex_leader(wave_prime)
+        if leader_vertex_prime!=None and strong_path(leader_vertex,leader_vertex_prime):
+            leader_stack.push(leader_vertex_prime)
+            leader_vertex = leader_vertex_prime
+    decided_wave = w
+    order_vertices(leader_stack)
+    
+def order_vertices(leader_stack):
+    while(len(leader_stack)>0):
+        leader_vertex = leader_stack.pop()
+        vertices_to_deliver = defaultdict(set)
+        for round in range(0, leader_vertex.round):
+            for vertex in DAG[round]:
+                if(path(leader_vertex, vertex) and vertex not in delivered_dag_vertices):
+                    vertices_to_deliver[vertex.round].append(vertex)
+
+    for round in vertices_to_deliver:
+        for vertex in vertices_to_deliver[round]:
+            # TODO output a_deliver(vertex.block, vertex.round, vertex.source)
+            delivered_dag_vertices.append(vertex)
+            
 
 
-#--------------/RELIABLE BROADCAST SECTION------------------
+#--------------/DAGRider-----------------------
+
 
 #--------------FLASK ENDPOINT-------------------
 @app.route('/pbft', methods=['POST'])
