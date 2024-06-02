@@ -8,13 +8,15 @@ import json
 import threading
 import request_rate_track
 import definitions
-
+from ecdsa import SigningKey, SECP256k1
+from ecdsa.util import number_to_string, string_to_number
+from hashlib import sha256
 
 app = Flask(__name__)
 nodes = {} # {id: CDN_Node}
 CDN_IPs = ['54.215.43.60', '34.201.142.18', '52.74.244.78', '18.132.44.229']
 pbft_port = 8080
-my_node = definitions.current_node(IP='54.215.43.60',node_id=1, total_nodes= 4, f=1)
+my_node = definitions.current_node(IP='54.215.43.60',node_id=1, total_nodes= 4, f=1) #TOBE set separately for each node.
 pbft_control_messages = deque() #these are the reliable broadcast messages. 
 # Vertices for the DAGRider is above the reliable Broadcast layer.
 DAG = defaultdict(set)
@@ -25,15 +27,17 @@ def initialize_nodes():
             
 #--------------RELIABLE BROADCAST SECTION------------------
 
-def reliable_bcast(vertex):
+def reliable_bcast(message, message_type):
     '''
-    param: vertex - Object of Vertex class
+    param: message - Object of Vertex class/ Threshold Signature.
     '''
+    
     my_node.next_message_id +=1
     new_message = definitions.Message()
     message_id = str(my_node.node_id)+':'+str(my_node.next_message_id)
     new_message.id = message_id
-    new_message.message = vertex
+    new_message.message_type = message_type
+    new_message.message = message
     new_message.type = 'INITIAL'
     new_message.sender = my_node.node_id
     
@@ -118,11 +122,33 @@ def handle_ready(message):
         if message_id not in my_node.ready_sent_messages:
             broadcast_ready(message)
     
-    if len(my_node.ready_messages[message_id]) >= 2 * my_node.f + 1 and message_id not in my_node.delivered_messages:
+    if len(my_node.ready_messages[message_id]) >= 2 * my_node.f + 1 and message_id not in my_node.delivered_messages: #deliver the message only
         deliver_message(message)
-        
-
+     
+     
 def deliver_message(message):
+    if message['message_type'] == 'V':
+        #deliver the vertex
+        deliver_vertex(message)
+    elif message['message_type'] == 'TS':
+        #deliver the threshold signature.
+        deliver_partial_signature(message)
+    print('Something is wrong delivering the message.')
+    
+
+def deliver_partial_signature(message):
+    '''
+    The partial signature is accepted through reliable bcast.
+    '''
+    ps_message = message['message']
+    node_id = ps_message['node_id']
+    wave = ps_message['wave']
+    signature_share = ps_message['signature_share']
+    
+    receive_signature(node_id, wave, signature_share)    
+    
+
+def deliver_vertex(message):
     #deliver to the DAG Layer
     #create a vertex out of message
     new_vertex = definitions.Vertex()
@@ -151,7 +177,6 @@ def deliver_message(message):
     print('Accepted message: ', message['id'], 'delivered the vertex with id: ', new_vertex.vertex_id)
     my_node.delivered_messages.add(message['id'])
     #vertex is constructed. Deliver it to the DAG Layer
-    #TODO
     r_delivery_to_DAG(new_vertex)
     
 #--------------/RELIABLE BROADCAST SECTION------------------
@@ -202,8 +227,8 @@ def strong_path(v,u):
     return dfs(v)
 
 
-dag_round = 1 # TODO check the initial value
-dag_buffer = [] # or SET? TODO
+dag_round = 1 # TODO check the initial value. Also DAG 1 round values are hardcoded. TODO
+dag_buffer = [] 
 create_vertex = False
 block_to_propose = []
 
@@ -235,12 +260,22 @@ def set_weak_edges(vertex):
                 #this is the weak edge
                 vertex.weak_edge.append(u_vertex)
     
-
+def remove_vertex_from_DAG_Buffer(vertices_to_remove_from_dag_buffer):
+    '''
+    Removes the processed vertex from DAG buffer.
+    '''
+    
+    for vertex in vertices_to_remove_from_dag_buffer:
+        dag_buffer.remove(vertex)
+    
+    
 def DAG_construction_procedure():
     '''
     This will be a thread continuously running to build the DAG
     '''
     while (True):
+        time.sleep(60)
+        
         init_buf_len =  len(dag_buffer)
         
         to_remove_from_buffer = []
@@ -258,65 +293,161 @@ def DAG_construction_procedure():
                     #then add the buffer_vertex to dag and remove the buffer_vertex from dag_buffer.
                     add_vertex_to_DAG(buffer_vertex)
                     to_remove_from_buffer.append(buffer_vertex)
-            
+        
+        #Remove the processed vertex from dag_buffer
+        remove_vertex_from_DAG_Buffer(to_remove_from_buffer)
+        
+         
         if len(DAG[dag_round]) >= 2*my_node.f +1:
             if dag_round%4==0:
                 # handle wave_ready
-                pass
+                wave_ready(dag_round//4)
+    
                 
             dag_round = dag_round +1
-            create_new_vertex(dag_round)
-            #Rbcast of the vertex.
+            new_vertex = create_new_vertex(dag_round)
+            reliable_bcast(new_vertex, 'V')
         
 def create_new_vertex(round):
     '''
-    Procedure for creating new vertex.It should run as a thread.
+    Procedure for creating new vertex.
     '''
  
-    #create vertex for new round here
+    #create vertex for new round here. 
+    #If no block to propose. Then empty block is proposed.
     if(len(block_to_propose)==0):
         #time.sleep(1)
         block = []
     else:
-        block = block_to_propose[0]
-        block_to_propose.pop(0)
+        block = block_to_propose
     
     vertex_id = str(my_node.node_id) + ':' + round
     source = my_node.node_id
+    if(round == 1):
+        #round1 will not reference anything.
+        new_vertex =  definitions.Vertex(vertex_id, round, source, block, [], [])
+        return new_vertex
     strong_edges = list(DAG[round-1]) 
-    #TODO set weak edges
     new_vertex = definitions.Vertex(vertex_id,round, source, block, strong_edges)
+    #set weak edges
     set_weak_edges(new_vertex)
-    reliable_bcast(new_vertex)
-        
-            
-        
+    return new_vertex
+    
 
 def r_delivery_to_DAG(vertex):
+    # Handle 1st round nodes. They will not have any previous references.
+    if vertex.round == 1:
+        dag_buffer.append(vertex)
+        return 
+     
     if len(vertex.strong_edges) >= 2 * my_node.f + 1:
-        dag_buffer.append(vertex) #TODO: check
+        dag_buffer.append(vertex) 
     
 #--------------/DAG Layer-----------------------
 
-#--------------DAGRider-----------------------
-decided_wave = 0
-delivered_dag_vertices = {}
-leader_stack = [] # this is a stack with push, pop functionalities.
+#--------------Global Perfect Coin-----------------------
+def sign( node_id, wave, private_key_share):
+        #here node_id =  my_node.node_id
+        message = str(wave).encode()
+        signature_share = private_key_share.sign(message)
+        ps_message = definitions.PS_Message(node_id, wave, signature_share)
+        #self.broadcast_signature(ps_message, nodes)
+        #send reliable_bcast_here
+        reliable_bcast(ps_message, 'TS')
+    
+
+def receive_signature(node_id, wave, signature_share):
+    my_node.threshold_signature.signatures[wave][node_id].append(signature_share)
+    
+    if len(my_node.threshold_signature.signatures[wave]) >= my_node.threshold_signature.threshold:
+        #combine the signatures
+        combine_signatures(wave)
+        #If signature is successfully combined, then compute global perfect coin.
+        if get_threshold_signature(wave):
+            compute_global_coin(wave)
+    
+
+def lagrange_coefficient(i, node_ids):
+    '''
+    node_ids = subset of node_ids of size equal to threshold
+    i = id of one of the nodes.
+    '''
+    coeff = 1
+    for j in node_ids:
+        if i!=j:
+            numerator = j+1
+            denominator = j + 1 - (i + 1)
+            coeff *= numerator * pow(denominator, -1, my_node.threshold_signature.total_nodes)
+    
+    return coeff
+    
+
+def combine_signatures(wave):
+    if wave not in my_node.threshold_signature.threshold_signatures:
+        node_ids = list(my_node.threshold_signature.signatures[wave].keys())[:my_node.threshold_signature.threshold]
+        combined_signature = 0
+        for id in node_ids:
+            coeff = lagrange_coefficient(id, node_ids)
+            combined_signature += string_to_number(my_node.threshold_signature.signatures[wave][id][0])* coeff
+        
+        my_node.threshold_signature.threshold_signatures[wave] = number_to_string(combined_signature % SECP256k1.order, SECP256k1.order)
+        print(f'Combined Threshold for wave {wave}')
+        
+
+def get_threshold_signature(wave):
+    return my_node.threshold_signature.threshold_signatures.get(wave, None)
+
+def compute_global_coin(wave):
+    if wave in my_node.leaders:
+        return #Global perfect coin is already computed and leader is chosen for the wave.
+    
+    wave_threshold_signature = get_threshold_signature(wave)
+    
+    if wave_threshold_signature:
+        h = sha256(wave_threshold_signature).hexdigest()
+        combined_value = int(h, 16)
+        leader = combined_value % my_node.total_nodes
+        my_node.leaders[wave] = leader
+        print(f'Node {my_node.node_id} chose {leader} as leader for wave {wave}')
+    
+
+def generate_random_value(w):
+    '''
+    param: (w) - wave
+    '''
+    sign(my_node.node_id, nodes, w, my_node.private_key_share)
 
 def choose_leader(w):
     '''
     selects leader node for the wave w. 
     Need to implement global perfect coin here. 
     '''
-    #TODO
-    pass
+    #TODO check logic
+    if my_node.leaders.get(w, None):
+        return my_node.leaders[w]
+    #else if the node has not generated the partial signature, generate it
+    
+    if not my_node.threshold_signature.signatures.get(w, None) or not my_node.threshold_signature.signatures[w].get(my_node.node_id, None):
+        sign(my_node.node_id, w, my_node.private_key_share)
+        
+    return my_node.leaders.get(w, None) 
+
+#--------------/Global Perfect Coin-----------------------
+
+
+#--------------DAGRider-----------------------
+decided_wave = 0
+delivered_dag_vertices = {}
+leader_stack = [] # this is a stack with push, pop functionalities.
+
+
     
 def get_wave_vertex_leader(w):
     '''
     Return the leader vertex for wave w.
     param (w) : wave number.
     '''
-    leader_node = choose_leader(w)
+    leader_node = choose_leader(w) #TODO check logic here
     round_one_wave = (w-1)*4 + 1
     for vertex in DAG[round_one_wave]:
         if(vertex.source) == leader_node:
@@ -360,6 +491,7 @@ def wave_ready(w):
     order_vertices(leader_stack)
     
 def order_vertices(leader_stack):
+    my_node.ips_to_block = []
     while(len(leader_stack)>0):
         leader_vertex = leader_stack.pop()
         vertices_to_deliver = defaultdict(set)
@@ -368,15 +500,74 @@ def order_vertices(leader_stack):
                 if(path(leader_vertex, vertex) and vertex not in delivered_dag_vertices):
                     vertices_to_deliver[vertex.round].append(vertex)
 
-    for round in vertices_to_deliver:
-        for vertex in vertices_to_deliver[round]:
-            # TODO output a_deliver(vertex.block, vertex.round, vertex.source)
-            delivered_dag_vertices.append(vertex)
-            
+        for round in vertices_to_deliver:
+            for vertex in vertices_to_deliver[round]:
+                # TODO output a_deliver(vertex.block, vertex.round, vertex.source)
+                a_deliver(vertex)
+                delivered_dag_vertices.append(vertex)
 
-
+    
+    request_rate_track.update_blocklist(my_node.ips_to_block)
+    
+def a_deliver(vertex):
+    '''
+    call application logic to block.
+    '''
+    block = vertex.block
+    for ip in block:
+        if ip not in my_node.ips_to_block:
+            my_node.ips_to_block.append(ip)
+    
 #--------------/DAGRider-----------------------
 
+#--------------Application Logic---------------
+
+def traffic_rate_tracking():
+    '''
+    The function continously parses the new log entry in the nginx log to track the rate of request from each IP.
+    '''
+    
+    request_rate_track.clear_blocklist()
+    
+    log_file = '/var/log/nginx/access.log'
+    request_threshold = 100
+    window_duration = timedelta(minutes=5)
+    
+    windows = defaultdict(deque) #Dictionary with IP as key and deque as values holding the timestamp
+    blocked_ips = set()
+    
+    with open(log_file, 'r') as file:
+        file.seek(0,2)
+        
+        while(True):
+            log_line = file.readline()
+            if not log_line:
+                time.sleep(1)
+                continue
+            
+            ip, timestamp =request_rate_track.parse_line(log_line)
+            
+            while windows[ip] and windows[ip][0] < timestamp - window_duration:
+                windows[ip].popleft() #remove entries that are older than 5 min window period.
+                
+            windows[ip].append(timestamp)
+            
+            #check whether the corresponding IP has exceeded the threshold
+            if len(windows[ip]) >= request_threshold:
+                if ip not in blocked_ips:
+                    blocked_ips.add(ip)
+                    block_to_propose=list(blocked_ips) 
+                    #request_rate_track.update_blocklist(blocked_ips) #TODO 
+                print(f"Alert: {ip} has made {len(windows[ip])} requests in the last 5 minutes.")
+            else:
+                if ip in blocked_ips:
+                    blocked_ips.remove(ip)
+                    block_to_propose=list(blocked_ips)
+                    #request_rate_track.update_blocklist(blocked_ips) #TODO 
+                    print(f"Alert: IP {ip} has been removed from blocked list. ", ip)
+                    
+
+#--------------/Application Logic---------------
 
 #--------------FLASK ENDPOINT-------------------
 @app.route('/pbft', methods=['POST'])
@@ -440,28 +631,49 @@ def process_messages():
 def start_flask():
     app.run(host='0.0.0.0', port=pbft_port)
     
+#------------------/FLASK ENDPOINT----------------------
+    
+def initiate_DAG_system():
+    '''
+    Create a new vertex for round 1 with empty block and start the DAG cycle
+    '''
+    #TODO
+    first_vertex = create_new_vertex(dag_round)
+    reliable_bcast(first_vertex, 'V')
+    
 if __name__ == '__main__':
     initialize_nodes()
     
+    #create a thread for flask application.
     flask_thread = threading.Thread(target=start_flask)
     flask_thread.daemon = True
     
     # Create a thread for the traffic monitoring
-    traffic_thread = threading.Thread(target=request_rate_track.traffic_rate_tracking)
+    traffic_thread = threading.Thread(target=traffic_rate_tracking)
     traffic_thread.daemon = True
     
     # Create a thread for message processing
     message_processing_thread = threading.Thread(target=process_messages)
     message_processing_thread.daemon = True
+    
+    # Create a thread for DAG Construction.
+    dag_construction_thread = threading.Thread(target=DAG_construction_procedure)
+    dag_construction_thread.daemon = True
 
     # Start all threads
     flask_thread.start()
     traffic_thread.start()
     message_processing_thread.start()
+    dag_construction_thread.start()
+    
+    #Initiate the system here.
+    initiate_DAG_system()
     
     # Keep the main thread alive
     flask_thread.join()
     traffic_thread.join()
     message_processing_thread.join()
+    dag_construction_thread.join()
+    
     
     
