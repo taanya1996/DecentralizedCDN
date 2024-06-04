@@ -19,7 +19,7 @@ while(True):
         v= definitions.Vertex(id= vertex_id,round=round,source=1,block=block)
         round +=1
         ip += 1
-        application.reliable_bcast(v)
+        application.reliable_bcast(v, 'V')
     else:
         break
 

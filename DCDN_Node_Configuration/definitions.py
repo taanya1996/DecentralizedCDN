@@ -55,7 +55,7 @@ class PS_Message:
     def __init__(self, node_id=None, wave=None, signature_share=None):
         self.node_id = node_id # node_id of the Partial Signature
         self.wave = wave #Partial Signature for which wave
-        self.signature_share = signature_share
+        self.signature_share = signature_share.hex()
     
     def to_dict(self):
         return {
@@ -68,7 +68,7 @@ class ThresholdSignature:
     def __init__(self, total_nodes, threshold):
         self.total_nodes = total_nodes
         self.threshold = threshold
-        self.signatures = defaultdict(lambda: defaultdict(dict)) # stores individual signature by wave and node
+        self.signatures = defaultdict(lambda: defaultdict(list)) # stores individual signature by wave and node
         self.threshold_signatures = {} #Combined threshold signatures by wave
 
     
@@ -78,7 +78,7 @@ class Message:
         self.id = id
         self.type = type # INITIAL, ECHO, READY
         self.message_type = message_type #vertex or partial_signature
-        self.message = message # message here will be vertex 
+        self.message = message # message here will be vertex/PS_Message. 
         self.sender = sender
     
     def to_dict(self):

@@ -67,7 +67,7 @@ def traffic_rate_tracking():
             if len(windows[ip]) >= request_threshold:
                 if ip not in blocked_ips:
                     blocked_ips.add(ip)
-                    update_blocklist(blocked_ips)
+                    update_blocklist(blocked_ips) 
                 print(f"Alert: {ip} has made {len(windows[ip])} requests in the last 5 minutes.")
             else:
                 if ip in blocked_ips:
@@ -76,5 +76,4 @@ def traffic_rate_tracking():
                     print(f"Alert: IP {ip} has been removed from blocked list. ", ip)
                     
 if __name__ == '__main__':
-    
-    rate_tracking()    
+    traffic_rate_tracking()    

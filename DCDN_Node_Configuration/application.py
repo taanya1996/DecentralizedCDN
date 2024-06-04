@@ -11,15 +11,49 @@ import definitions
 from ecdsa import SigningKey, SECP256k1
 from ecdsa.util import number_to_string, string_to_number
 from hashlib import sha256
+import socket
+import logging
 
 app = Flask(__name__)
+app.logger.setLevel(logging.ERROR)
+
 nodes = {} # {id: CDN_Node}
 CDN_IPs = ['54.215.43.60', '34.201.142.18', '52.74.244.78', '18.132.44.229']
 pbft_port = 8080
 my_node = definitions.current_node(IP='54.215.43.60',node_id=1, total_nodes= 4, f=1) #TOBE set separately for each node.
 pbft_control_messages = deque() #these are the reliable broadcast messages. 
+pbft_control_messages_lock = threading.Lock()
+
 # Vertices for the DAGRider is above the reliable Broadcast layer.
 DAG = defaultdict(set)
+
+def get_server_ip():
+    try:
+        hostname = socket.gethostname()
+        server_ip = socket.gethostbyname(hostname)
+        return server_ip
+    except Exception as e:
+        print('Error obtaining private IP address.')
+
+def set_my_node():
+    global my_node
+    server_ip = get_server_ip()
+    if server_ip == '172.30.1.57':
+        #node1
+        my_node = definitions.current_node(IP='54.215.43.60',node_id=1, total_nodes= 4, f=1) 
+
+    elif server_ip == '172.30.0.49':
+        #node2
+        my_node = definitions.current_node(IP='34.201.142.18',node_id=2, total_nodes= 4, f=1) 
+    elif server_ip == '172.30.0.168':
+        #node3
+        my_node = definitions.current_node(IP='52.74.244.78',node_id=3, total_nodes= 4, f=1) 
+    elif server_ip == '172.31.45.119':
+        #node4
+        my_node = definitions.current_node(IP='18.132.44.229',node_id=4, total_nodes= 4, f=1) 
+    else:
+        print('Error setting up nodes.')
+        exit(1)
 
 def initialize_nodes():
     for i in range(1, my_node.total_nodes+1):
@@ -122,7 +156,8 @@ def handle_ready(message):
         if message_id not in my_node.ready_sent_messages:
             broadcast_ready(message)
     
-    if len(my_node.ready_messages[message_id]) >= 2 * my_node.f + 1 and message_id not in my_node.delivered_messages: #deliver the message only
+    if len(my_node.ready_messages[message_id]) >= 2 * my_node.f + 1 and message_id not in my_node.delivered_messages: #deliver the message only once.
+        print(f'Delivering the message with ID: {message_id}')
         deliver_message(message)
      
      
@@ -130,9 +165,11 @@ def deliver_message(message):
     if message['message_type'] == 'V':
         #deliver the vertex
         deliver_vertex(message)
+        return
     elif message['message_type'] == 'TS':
         #deliver the threshold signature.
         deliver_partial_signature(message)
+        return 
     print('Something is wrong delivering the message.')
     
 
@@ -143,7 +180,7 @@ def deliver_partial_signature(message):
     ps_message = message['message']
     node_id = ps_message['node_id']
     wave = ps_message['wave']
-    signature_share = ps_message['signature_share']
+    signature_share = bytes.fromhex(ps_message['signature_share'])
     
     receive_signature(node_id, wave, signature_share)    
     
@@ -161,7 +198,7 @@ def deliver_vertex(message):
         id_list = edge_id.split(":") #node_id:round_no
         edge_round =  id_list[1]
         for vertex in DAG[int(edge_round)]:
-            if edge_id == vertex.edge_id:
+            if edge_id == vertex.vertex_id:
                 strong_edges.append(vertex)
     
     weak_edges =[]
@@ -169,7 +206,7 @@ def deliver_vertex(message):
         id_list = edge_id.split(":") #node_id:round_no
         edge_round =  id_list[1]
         for vertex in DAG[int(edge_round)]:
-            if edge_id == vertex.edge_id:
+            if edge_id == vertex.vertex_id:
                 weak_edges.append(vertex)
     
     new_vertex.strong_edges = strong_edges
@@ -228,15 +265,18 @@ def strong_path(v,u):
 
 
 dag_round = 1 # TODO check the initial value. Also DAG 1 round values are hardcoded. TODO
+dag_round_lock = threading.Lock()
 dag_buffer = [] 
+dag_buffer_lock = threading.Lock()
 create_vertex = False
 block_to_propose = []
+
 
 def VertexInDAG(vertex):
     '''
     param vertex: Object of Vertex class
     '''
-    v_round = vertex.round()
+    v_round = vertex.round
     if vertex in DAG[v_round]:
         return True
     
@@ -273,8 +313,10 @@ def DAG_construction_procedure():
     '''
     This will be a thread continuously running to build the DAG
     '''
+    global dag_round
     while (True):
-        time.sleep(60)
+        print('sleeping for 10 sec.')
+        time.sleep(10)
         
         init_buf_len =  len(dag_buffer)
         
@@ -284,6 +326,8 @@ def DAG_construction_procedure():
             buffer_vertex = dag_buffer[buf_ind]
             flag = True
             if(buffer_vertex.round <= dag_round):
+                #print(buffer_vertex.strong_edges + buffer_vertex.weak_edges)
+                #print(type(buffer_vertex.strong_edges + buffer_vertex.weak_edges))
                 for vertex in buffer_vertex.strong_edges + buffer_vertex.weak_edges:
                     if not VertexInDAG(vertex):
                         #this buffer vertex cannot be added to dag
@@ -312,7 +356,7 @@ def create_new_vertex(round):
     '''
     Procedure for creating new vertex.
     '''
- 
+    print(f'Creating vertex for round {round}')
     #create vertex for new round here. 
     #If no block to propose. Then empty block is proposed.
     if(len(block_to_propose)==0):
@@ -321,13 +365,14 @@ def create_new_vertex(round):
     else:
         block = block_to_propose
     
-    vertex_id = str(my_node.node_id) + ':' + round
+    vertex_id = str(my_node.node_id) + ':' + str(round) #TODO
     source = my_node.node_id
     if(round == 1):
         #round1 will not reference anything.
         new_vertex =  definitions.Vertex(vertex_id, round, source, block, [], [])
         return new_vertex
-    strong_edges = list(DAG[round-1]) 
+    strong_edges = list(DAG[round-1])
+    print(f'strong edges for round {round}: {strong_edges}') 
     new_vertex = definitions.Vertex(vertex_id,round, source, block, strong_edges)
     #set weak edges
     set_weak_edges(new_vertex)
@@ -406,7 +451,7 @@ def compute_global_coin(wave):
     if wave_threshold_signature:
         h = sha256(wave_threshold_signature).hexdigest()
         combined_value = int(h, 16)
-        leader = combined_value % my_node.total_nodes
+        leader = (combined_value % my_node.total_nodes) + 1
         my_node.leaders[wave] = leader
         print(f'Node {my_node.node_id} chose {leader} as leader for wave {wave}')
     
@@ -613,7 +658,7 @@ def process_messages():
     while(True):
         if pbft_control_messages:
             message = pbft_control_messages.popleft()
-            print("Processed message: ", message, type(message))
+            #print("Processed message: ", message, type(message))
             while(type(message)==str):
                 message = json.loads(message) # for deserialization TODO Fix multiple levels of serialization
             if message['type']== 'INITIAL':
@@ -642,6 +687,8 @@ def initiate_DAG_system():
     reliable_bcast(first_vertex, 'V')
     
 if __name__ == '__main__':
+    set_my_node()
+    print(f'My node IP: {my_node.ip}')
     initialize_nodes()
     
     #create a thread for flask application.
@@ -667,7 +714,14 @@ if __name__ == '__main__':
     dag_construction_thread.start()
     
     #Initiate the system here.
+    option = 'N'
+    
+    while option == 'N':
+        time.sleep(2)
+        option = input("Are we good to initiate the DAG system? Y/N")
+    
     initiate_DAG_system()
+        
     
     # Keep the main thread alive
     flask_thread.join()
