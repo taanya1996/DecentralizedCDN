@@ -25,11 +25,13 @@ def parse_line(line):
 def update_blocklist(blocked_ips):
     """ Update the Nginx blocklist configuration file with the blocked IPs. """
     blocklist_file = '/etc/nginx/blocked_ips.conf'
+    print(f'Updated IP Block List: {blocked_ips}')
     with open(blocklist_file, 'w') as file:
         for ip in blocked_ips:
             file.write(f"deny {ip};\n")
     # Reload Nginx to apply the new blocklist
     subprocess.run(['nginx', '-s', 'reload'])
+    print('BlockList file updated')
 
     
 

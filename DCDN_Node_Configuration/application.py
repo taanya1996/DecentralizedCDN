@@ -15,7 +15,8 @@ import socket
 import logging
 
 app = Flask(__name__)
-app.logger.setLevel(logging.ERROR)
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 nodes = {} # {id: CDN_Node}
 CDN_IPs = ['54.215.43.60', '34.201.142.18', '52.74.244.78', '18.132.44.229']
@@ -66,9 +67,10 @@ def reliable_bcast(message, message_type):
     param: message - Object of Vertex class/ Threshold Signature.
     '''
     
-    my_node.next_message_id +=1
     new_message = definitions.Message()
-    message_id = str(my_node.node_id)+':'+str(my_node.next_message_id)
+    with my_node.next_message_id_lock:
+        my_node.next_message_id +=1
+        message_id = str(my_node.node_id)+':'+str(my_node.next_message_id)
     new_message.id = message_id
     new_message.message_type = message_type
     new_message.message = message
@@ -157,18 +159,21 @@ def handle_ready(message):
             broadcast_ready(message)
     
     if len(my_node.ready_messages[message_id]) >= 2 * my_node.f + 1 and message_id not in my_node.delivered_messages: #deliver the message only once.
-        print(f'Delivering the message with ID: {message_id}')
         deliver_message(message)
      
      
 def deliver_message(message):
+    
+    print(f"Delivering the message of type {message['message_type']} with ID: {message['id']}")
     if message['message_type'] == 'V':
         #deliver the vertex
         deliver_vertex(message)
+        time.sleep(5)
         return
     elif message['message_type'] == 'TS':
         #deliver the threshold signature.
         deliver_partial_signature(message)
+        time.sleep(5)
         return 
     print('Something is wrong delivering the message.')
     
@@ -182,6 +187,7 @@ def deliver_partial_signature(message):
     wave = ps_message['wave']
     signature_share = bytes.fromhex(ps_message['signature_share'])
     
+    my_node.delivered_messages.add(message['id'])
     receive_signature(node_id, wave, signature_share)    
     
 
@@ -298,7 +304,10 @@ def set_weak_edges(vertex):
         for u_vertex in DAG[round]:
             if path(vertex, u_vertex)==False:
                 #this is the weak edge
-                vertex.weak_edge.append(u_vertex)
+                vertex.weak_edges.append(u_vertex)
+    
+    print(f'No of weak edges for the vertex {vertex.vertex_id}: {len(vertex.weak_edges)}')
+    
     
 def remove_vertex_from_DAG_Buffer(vertices_to_remove_from_dag_buffer):
     '''
@@ -306,7 +315,9 @@ def remove_vertex_from_DAG_Buffer(vertices_to_remove_from_dag_buffer):
     '''
     
     for vertex in vertices_to_remove_from_dag_buffer:
-        dag_buffer.remove(vertex)
+        with dag_buffer_lock:
+            #print(f'Removing vertex {vertex.vertex_id}')
+            dag_buffer.remove(vertex)
     
     
 def DAG_construction_procedure():
@@ -315,43 +326,51 @@ def DAG_construction_procedure():
     '''
     global dag_round
     while (True):
-        print('sleeping for 10 sec.')
-        time.sleep(10)
+        #print('sleeping for 2 sec.')
+        time.sleep(2)
         
-        init_buf_len =  len(dag_buffer)
+        with dag_buffer_lock:
+            init_buf_len =  len(dag_buffer)
         
         to_remove_from_buffer = []
         
+        '''
+        if(init_buf_len==0):
+            print('dag_buffer is currently empty. No vertex to process and add to dag.')
+        '''
+       
         for buf_ind in range(0, init_buf_len):
-            buffer_vertex = dag_buffer[buf_ind]
+            with dag_buffer_lock:
+                buffer_vertex = dag_buffer[buf_ind]
             flag = True
-            if(buffer_vertex.round <= dag_round):
-                #print(buffer_vertex.strong_edges + buffer_vertex.weak_edges)
-                #print(type(buffer_vertex.strong_edges + buffer_vertex.weak_edges))
-                for vertex in buffer_vertex.strong_edges + buffer_vertex.weak_edges:
-                    if not VertexInDAG(vertex):
-                        #this buffer vertex cannot be added to dag
-                        flag = False
-                        break
-                if flag:
-                    #then add the buffer_vertex to dag and remove the buffer_vertex from dag_buffer.
-                    add_vertex_to_DAG(buffer_vertex)
-                    to_remove_from_buffer.append(buffer_vertex)
-        
+            with dag_round_lock:
+                if(buffer_vertex.round <= dag_round):
+                    #print(buffer_vertex.strong_edges + buffer_vertex.weak_edges)
+                    #print(type(buffer_vertex.strong_edges + buffer_vertex.weak_edges))
+                    for vertex in buffer_vertex.strong_edges + buffer_vertex.weak_edges:
+                        if not VertexInDAG(vertex):
+                            #this buffer vertex cannot be added to dag
+                            flag = False
+                            break
+                    if flag:
+                        #then add the buffer_vertex to dag and remove the buffer_vertex from dag_buffer.
+                        add_vertex_to_DAG(buffer_vertex)
+                        to_remove_from_buffer.append(buffer_vertex)
+    
         #Remove the processed vertex from dag_buffer
         remove_vertex_from_DAG_Buffer(to_remove_from_buffer)
         
-         
-        if len(DAG[dag_round]) >= 2*my_node.f +1:
-            if dag_round%4==0:
-                # handle wave_ready
-                wave_ready(dag_round//4)
-    
-                
-            dag_round = dag_round +1
-            new_vertex = create_new_vertex(dag_round)
-            reliable_bcast(new_vertex, 'V')
+        with dag_round_lock:
+            if len(DAG[dag_round]) >= 2*my_node.f +1:
+                if dag_round%4==0:
+                    # handle wave_ready
+                    wave_ready(dag_round//4)
         
+                    
+                dag_round = dag_round +1
+                new_vertex = create_new_vertex(dag_round)
+                reliable_bcast(new_vertex, 'V')
+            
 def create_new_vertex(round):
     '''
     Procedure for creating new vertex.
@@ -363,6 +382,7 @@ def create_new_vertex(round):
         #time.sleep(1)
         block = []
     else:
+        print('There is an IP to Block.')
         block = block_to_propose
     
     vertex_id = str(my_node.node_id) + ':' + str(round) #TODO
@@ -372,7 +392,8 @@ def create_new_vertex(round):
         new_vertex =  definitions.Vertex(vertex_id, round, source, block, [], [])
         return new_vertex
     strong_edges = list(DAG[round-1])
-    print(f'strong edges for round {round}: {strong_edges}') 
+    print(f'No of strong edges for the vertex {vertex_id}: {len(strong_edges)}')
+    #print(f'strong edges for round {round}: {strong_edges}') 
     new_vertex = definitions.Vertex(vertex_id,round, source, block, strong_edges)
     #set weak edges
     set_weak_edges(new_vertex)
@@ -382,11 +403,13 @@ def create_new_vertex(round):
 def r_delivery_to_DAG(vertex):
     # Handle 1st round nodes. They will not have any previous references.
     if vertex.round == 1:
-        dag_buffer.append(vertex)
+        with dag_buffer_lock:
+            dag_buffer.append(vertex)
         return 
      
     if len(vertex.strong_edges) >= 2 * my_node.f + 1:
-        dag_buffer.append(vertex) 
+        with dag_buffer_lock:
+            dag_buffer.append(vertex) 
     
 #--------------/DAG Layer-----------------------
 
@@ -422,8 +445,8 @@ def lagrange_coefficient(i, node_ids):
         if i!=j:
             numerator = j+1
             denominator = j + 1 - (i + 1)
-            coeff *= numerator * pow(denominator, -1, my_node.threshold_signature.total_nodes)
-    
+            coeff *= numerator * pow(denominator, -1, SECP256k1.order)
+            coeff *= SECP256k1.order
     return coeff
     
 
@@ -474,7 +497,13 @@ def choose_leader(w):
     
     if not my_node.threshold_signature.signatures.get(w, None) or not my_node.threshold_signature.signatures[w].get(my_node.node_id, None):
         sign(my_node.node_id, w, my_node.private_key_share)
-        
+    
+    #TODO wait until a leader is chosen.
+    while not my_node.leaders.get(w,None):
+        time.sleep(1)
+        #TODO Should we just wait or sleep for 1 sec. 1 sec delay is acceptable?
+    
+    print(f'Leader is choosen for the wave {w} and it is: {my_node.leaders.get(w,None)}')
     return my_node.leaders.get(w, None) 
 
 #--------------/Global Perfect Coin-----------------------
@@ -482,7 +511,7 @@ def choose_leader(w):
 
 #--------------DAGRider-----------------------
 decided_wave = 0
-delivered_dag_vertices = {}
+delivered_dag_vertices = []
 leader_stack = [] # this is a stack with push, pop functionalities.
 
 
@@ -520,13 +549,17 @@ def wave_ready(w):
     '''
     The function gets signal from DAG construction layer
     '''
+    global decided_wave
     leader_vertex = get_wave_vertex_leader(w)
     if leader_vertex==None:
+        print('Leader vertex is None. Hence, returning from wave_ready.')
         return 
     if not strong_path_from_round4(w, leader_vertex):
+        print('No 2f+1 strong paths for leader from round 4.')
         return 
     
     leader_stack.append(leader_vertex)
+    print('Leader vertex appended to leader stack.')
     for wave_prime in range(w-1,decided_wave, -1):
         leader_vertex_prime = get_wave_vertex_leader(wave_prime)
         if leader_vertex_prime!=None and strong_path(leader_vertex,leader_vertex_prime):
@@ -536,21 +569,25 @@ def wave_ready(w):
     order_vertices(leader_stack)
     
 def order_vertices(leader_stack):
+    print('Ordering vertices.')
     my_node.ips_to_block = []
     while(len(leader_stack)>0):
         leader_vertex = leader_stack.pop()
         vertices_to_deliver = defaultdict(set)
-        for round in range(0, leader_vertex.round):
+        for round in range(1, leader_vertex.round):
             for vertex in DAG[round]:
                 if(path(leader_vertex, vertex) and vertex not in delivered_dag_vertices):
-                    vertices_to_deliver[vertex.round].append(vertex)
-
+                    vertices_to_deliver[vertex.round].add(vertex)
+        #print(f'Vertices to deliver: {vertices_to_deliver}')
+        
+        print(f'Vertices delivered are: ', end=" ")
         for round in vertices_to_deliver:
             for vertex in vertices_to_deliver[round]:
+                print(vertex.vertex_id, end=" ")
                 # TODO output a_deliver(vertex.block, vertex.round, vertex.source)
                 a_deliver(vertex)
                 delivered_dag_vertices.append(vertex)
-
+        print()
     
     request_rate_track.update_blocklist(my_node.ips_to_block)
     
@@ -571,6 +608,7 @@ def traffic_rate_tracking():
     '''
     The function continously parses the new log entry in the nginx log to track the rate of request from each IP.
     '''
+    global block_to_propose
     
     request_rate_track.clear_blocklist()
     
@@ -603,7 +641,7 @@ def traffic_rate_tracking():
                     blocked_ips.add(ip)
                     block_to_propose=list(blocked_ips) 
                     #request_rate_track.update_blocklist(blocked_ips) #TODO 
-                print(f"Alert: {ip} has made {len(windows[ip])} requests in the last 5 minutes.")
+                #print(f"Alert: {ip} has made {len(windows[ip])} requests in the last 5 minutes.")
             else:
                 if ip in blocked_ips:
                     blocked_ips.remove(ip)
@@ -683,7 +721,9 @@ def initiate_DAG_system():
     Create a new vertex for round 1 with empty block and start the DAG cycle
     '''
     #TODO
-    first_vertex = create_new_vertex(dag_round)
+
+    with dag_round_lock:
+        first_vertex = create_new_vertex(dag_round)
     reliable_bcast(first_vertex, 'V')
     
 if __name__ == '__main__':

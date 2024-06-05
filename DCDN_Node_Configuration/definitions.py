@@ -3,6 +3,7 @@ import hashlib
 from ecdsa import SigningKey, SECP256k1
 from ecdsa.util import number_to_string, string_to_number
 from hashlib import sha256
+import threading
 
 
 class current_node:
@@ -19,6 +20,7 @@ class current_node:
         self.delivered_messages = set()
         self.buffer = set()
         self.next_message_id = 0
+        self.next_message_id_lock = threading.Lock()
         #for Global Perfect coin
         self.private_key_share = SigningKey.generate(curve=SECP256k1) #each node will get a different private key share
         self.public_key_share = self.private_key_share.get_verifying_key() #TODO should this info be sent to all the nodes?

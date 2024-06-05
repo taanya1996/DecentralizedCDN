@@ -19,12 +19,12 @@ def send_requests(target_url, uri_list, total_requests, window_seconds):
         except requests.exceptions.RequestException as e:
             print(f"Request {i}: Failed with error {e}")
         ind = (ind + 1)%total_uri
-        time.sleep(interval)
+        time.sleep(1)
     
 if __name__ == "__main__":
     target_url = "http://54.215.43.60" #CDN Node IP
     uri_list = ['/', '/project_overview', '/problem_statement', '/architecture', '/application_components', '/metrics', '/testing' ]# Replace with your desired endpoint
-    request_count = 200  # Number of requests
+    request_count = 500  # Number of requests
     window_seconds = 300  # Duration of the window in seconds (5 minutes)
 
     send_requests(target_url, uri_list, request_count, window_seconds)
