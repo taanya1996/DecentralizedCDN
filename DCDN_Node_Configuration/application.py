@@ -164,7 +164,7 @@ def handle_ready(message):
      
 def deliver_message(message):
     
-    print(f"Delivering the message of type {message['message_type']} with ID: {message['id']}")
+    print(f"Delivering the message of type {message['message_type']} with message ID: {message['id']}")
     if message['message_type'] == 'V':
         #deliver the vertex
         deliver_vertex(message)
@@ -217,7 +217,7 @@ def deliver_vertex(message):
     
     new_vertex.strong_edges = strong_edges
     new_vertex.weak_edges = weak_edges
-    print('Accepted message: ', message['id'], 'delivered the vertex with id: ', new_vertex.vertex_id)
+    print('Accepted message: ', message['id'], 'delivered the vertex with vertex id: ', new_vertex.vertex_id)
     my_node.delivered_messages.add(message['id'])
     #vertex is constructed. Deliver it to the DAG Layer
     r_delivery_to_DAG(new_vertex)
