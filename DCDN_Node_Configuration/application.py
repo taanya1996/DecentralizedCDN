@@ -15,8 +15,9 @@ import socket
 import logging
 
 app = Flask(__name__)
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.ERROR)
+logging.basicConfig(level = logging.INFO) 
+werkzeug_log = logging.getLogger('werkzeug')
+werkzeug_log.setLevel(logging.ERROR)
 
 nodes = {} # {id: CDN_Node}
 CDN_IPs = ['54.215.43.60', '34.201.142.18', '52.74.244.78', '18.132.44.229']
@@ -34,7 +35,7 @@ def get_server_ip():
         server_ip = socket.gethostbyname(hostname)
         return server_ip
     except Exception as e:
-        print('Error obtaining private IP address.')
+        logging.error('Error obtaining private IP address.')
 
 def set_my_node():
     global my_node
@@ -53,7 +54,7 @@ def set_my_node():
         #node4
         my_node = definitions.current_node(IP='18.132.44.229',node_id=4, total_nodes= 4, f=1) 
     else:
-        print('Error setting up nodes.')
+        logging.error('Error setting up nodes')
         exit(1)
 
 def initialize_nodes():
@@ -91,7 +92,8 @@ def send_initial(message):
             
         else:
             #how to send a message to self?
-            pbft_control_messages.append(message)
+            with pbft_control_messages_lock:
+                pbft_control_messages.append(message)
     
 
 def handle_initial(message):
@@ -117,7 +119,8 @@ def broadcast_echo(message):
             http_send_POST(new_message, nodes[node].ip)
         else:
             #send to self node
-            pbft_control_messages.append(new_message)
+            with pbft_control_messages_lock:
+                pbft_control_messages.append(new_message)
             
 
 def handle_echo(message):
@@ -147,7 +150,8 @@ def broadcast_ready(message):
             http_send_POST(new_message, nodes[node].ip)
         else:
             #send to self
-            pbft_control_messages.append(new_message)
+            with pbft_control_messages_lock:
+                pbft_control_messages.append(new_message)
     my_node.ready_sent_messages.add(message_id)     
 
 def handle_ready(message):
@@ -164,19 +168,16 @@ def handle_ready(message):
      
 def deliver_message(message):
     
-    print(f"Delivering the message of type {message['message_type']} with ID: {message['id']}")
+    logging.info(f"ReliableBcast Delivery - message_type: {message['message_type']} message ID: {message['id']}")
     if message['message_type'] == 'V':
         #deliver the vertex
         deliver_vertex(message)
-        time.sleep(5)
         return
     elif message['message_type'] == 'TS':
         #deliver the threshold signature.
         deliver_partial_signature(message)
-        time.sleep(5)
         return 
-    print('Something is wrong delivering the message.')
-    
+    logging.error('Something is wrong delivering the message')
 
 def deliver_partial_signature(message):
     '''
@@ -217,7 +218,7 @@ def deliver_vertex(message):
     
     new_vertex.strong_edges = strong_edges
     new_vertex.weak_edges = weak_edges
-    print('Accepted message: ', message['id'], 'delivered the vertex with id: ', new_vertex.vertex_id)
+    logging.info(f"VertexDelivery - MessageId: {message['id']} VertexID: {new_vertex.vertex_id}")
     my_node.delivered_messages.add(message['id'])
     #vertex is constructed. Deliver it to the DAG Layer
     r_delivery_to_DAG(new_vertex)
@@ -276,6 +277,7 @@ dag_buffer = []
 dag_buffer_lock = threading.Lock()
 create_vertex = False
 block_to_propose = []
+block_to_propose_lock = threading.Lock()
 
 
 def VertexInDAG(vertex):
@@ -306,7 +308,7 @@ def set_weak_edges(vertex):
                 #this is the weak edge
                 vertex.weak_edges.append(u_vertex)
     
-    print(f'No of weak edges for the vertex {vertex.vertex_id}: {len(vertex.weak_edges)}')
+    logging.info(f'No of weak edges for the vertex {vertex.vertex_id}: {len(vertex.weak_edges)}')
     
     
 def remove_vertex_from_DAG_Buffer(vertices_to_remove_from_dag_buffer):
@@ -316,7 +318,6 @@ def remove_vertex_from_DAG_Buffer(vertices_to_remove_from_dag_buffer):
     
     for vertex in vertices_to_remove_from_dag_buffer:
         with dag_buffer_lock:
-            #print(f'Removing vertex {vertex.vertex_id}')
             dag_buffer.remove(vertex)
     
     
@@ -326,18 +327,11 @@ def DAG_construction_procedure():
     '''
     global dag_round
     while (True):
-        #print('sleeping for 2 sec.')
-        time.sleep(2)
         
         with dag_buffer_lock:
             init_buf_len =  len(dag_buffer)
         
         to_remove_from_buffer = []
-        
-        '''
-        if(init_buf_len==0):
-            print('dag_buffer is currently empty. No vertex to process and add to dag.')
-        '''
        
         for buf_ind in range(0, init_buf_len):
             with dag_buffer_lock:
@@ -345,8 +339,6 @@ def DAG_construction_procedure():
             flag = True
             with dag_round_lock:
                 if(buffer_vertex.round <= dag_round):
-                    #print(buffer_vertex.strong_edges + buffer_vertex.weak_edges)
-                    #print(type(buffer_vertex.strong_edges + buffer_vertex.weak_edges))
                     for vertex in buffer_vertex.strong_edges + buffer_vertex.weak_edges:
                         if not VertexInDAG(vertex):
                             #this buffer vertex cannot be added to dag
@@ -375,15 +367,15 @@ def create_new_vertex(round):
     '''
     Procedure for creating new vertex.
     '''
-    print(f'Creating vertex for round {round}')
+    logging.info(f'Creating vertex for round {round}. Block To propose: {block_to_propose}')
     #create vertex for new round here. 
     #If no block to propose. Then empty block is proposed.
-    if(len(block_to_propose)==0):
-        #time.sleep(1)
-        block = []
-    else:
-        print('There is an IP to Block.')
-        block = block_to_propose
+    with block_to_propose_lock:
+        if(len(block_to_propose)==0):
+            block = []
+        else:
+            logging.info('There are some IPs to Block')
+            block = block_to_propose
     
     vertex_id = str(my_node.node_id) + ':' + str(round) #TODO
     source = my_node.node_id
@@ -392,8 +384,7 @@ def create_new_vertex(round):
         new_vertex =  definitions.Vertex(vertex_id, round, source, block, [], [])
         return new_vertex
     strong_edges = list(DAG[round-1])
-    print(f'No of strong edges for the vertex {vertex_id}: {len(strong_edges)}')
-    #print(f'strong edges for round {round}: {strong_edges}') 
+    logging.info(f'No of strong edges for the vertex {vertex_id}: {len(strong_edges)}')
     new_vertex = definitions.Vertex(vertex_id,round, source, block, strong_edges)
     #set weak edges
     set_weak_edges(new_vertex)
@@ -459,7 +450,6 @@ def combine_signatures(wave):
             combined_signature += string_to_number(my_node.threshold_signature.signatures[wave][id][0])* coeff
         
         my_node.threshold_signature.threshold_signatures[wave] = number_to_string(combined_signature % SECP256k1.order, SECP256k1.order)
-        print(f'Combined Threshold for wave {wave}')
         
 
 def get_threshold_signature(wave):
@@ -476,7 +466,6 @@ def compute_global_coin(wave):
         combined_value = int(h, 16)
         leader = (combined_value % my_node.total_nodes) + 1
         my_node.leaders[wave] = leader
-        print(f'Node {my_node.node_id} chose {leader} as leader for wave {wave}')
     
 
 def generate_random_value(w):
@@ -503,7 +492,7 @@ def choose_leader(w):
         time.sleep(1)
         #TODO Should we just wait or sleep for 1 sec. 1 sec delay is acceptable?
     
-    print(f'Leader is choosen for the wave {w} and it is: {my_node.leaders.get(w,None)}')
+    logging.info(f'Leader for the wave {w} is {my_node.leaders.get(w,None)}')
     return my_node.leaders.get(w, None) 
 
 #--------------/Global Perfect Coin-----------------------
@@ -552,14 +541,13 @@ def wave_ready(w):
     global decided_wave
     leader_vertex = get_wave_vertex_leader(w)
     if leader_vertex==None:
-        print('Leader vertex is None. Hence, returning from wave_ready.')
+        logging.info('Leader vertex is None. Hence, returning from wave_ready.')
         return 
     if not strong_path_from_round4(w, leader_vertex):
-        print('No 2f+1 strong paths for leader from round 4.')
+        logging.info('No 2f+1 strong paths for leader from round 4.')
         return 
     
     leader_stack.append(leader_vertex)
-    print('Leader vertex appended to leader stack.')
     for wave_prime in range(w-1,decided_wave, -1):
         leader_vertex_prime = get_wave_vertex_leader(wave_prime)
         if leader_vertex_prime!=None and strong_path(leader_vertex,leader_vertex_prime):
@@ -569,7 +557,6 @@ def wave_ready(w):
     order_vertices(leader_stack)
     
 def order_vertices(leader_stack):
-    print('Ordering vertices.')
     my_node.ips_to_block = []
     while(len(leader_stack)>0):
         leader_vertex = leader_stack.pop()
@@ -578,7 +565,6 @@ def order_vertices(leader_stack):
             for vertex in DAG[round]:
                 if(path(leader_vertex, vertex) and vertex not in delivered_dag_vertices):
                     vertices_to_deliver[vertex.round].add(vertex)
-        #print(f'Vertices to deliver: {vertices_to_deliver}')
         
         print(f'Vertices delivered are: ', end=" ")
         for round in vertices_to_deliver:
@@ -603,12 +589,44 @@ def a_deliver(vertex):
 #--------------/DAGRider-----------------------
 
 #--------------Application Logic---------------
+windows = defaultdict(deque) 
+windows_lock = threading.Lock()
+request_threshold = 100
+window_duration = timedelta(minutes=5)
+blocked_ips = set()
+blocked_ips_lock = threading.Lock()
+
+def review_ips_in_window():
+    global windows
+    global window_duration 
+    global request_threshold
+    global blocked_ips
+    global block_to_propose
+    
+    while(True):
+        for ip in windows:
+            with windows_lock:
+                while(windows[ip] and (datetime.now() - windows[ip][0] > window_duration) ): #TODO check condition logic
+                    windows[ip].popleft()
+            
+            with windows_lock:
+                if len(windows[ip])< request_threshold:
+                    with blocked_ips_lock:
+                        if ip in blocked_ips:
+                            blocked_ips.remove(ip) 
+                            with block_to_propose_lock:
+                                block_to_propose=list(blocked_ips) #TODO lock on block_to_propose
+                                logging.info(f"Alert: IP {ip} has been identified to be removed from blocked list. ")
+        time.sleep(5)
+    
 
 def traffic_rate_tracking():
     '''
     The function continously parses the new log entry in the nginx log to track the rate of request from each IP.
     '''
     global block_to_propose
+    global windows
+    global blocked_ips
     
     request_rate_track.clear_blocklist()
     
@@ -616,8 +634,8 @@ def traffic_rate_tracking():
     request_threshold = 100
     window_duration = timedelta(minutes=5)
     
-    windows = defaultdict(deque) #Dictionary with IP as key and deque as values holding the timestamp
-    blocked_ips = set()
+    #windows = defaultdict(deque) #Dictionary with IP as key and deque as values holding the timestamp
+    
     
     with open(log_file, 'r') as file:
         file.seek(0,2)
@@ -630,25 +648,29 @@ def traffic_rate_tracking():
             
             ip, timestamp =request_rate_track.parse_line(log_line)
             
-            while windows[ip] and windows[ip][0] < timestamp - window_duration:
-                windows[ip].popleft() #remove entries that are older than 5 min window period.
-                
-            windows[ip].append(timestamp)
+            with windows_lock:
+                while windows[ip] and windows[ip][0] < timestamp - window_duration:
+                    windows[ip].popleft() #remove entries that are older than 5 min window period.
+            
+            with windows_lock:   
+                windows[ip].append(timestamp)
             
             #check whether the corresponding IP has exceeded the threshold
             if len(windows[ip]) >= request_threshold:
                 if ip not in blocked_ips:
-                    blocked_ips.add(ip)
-                    block_to_propose=list(blocked_ips) 
-                    #request_rate_track.update_blocklist(blocked_ips) #TODO 
-                #print(f"Alert: {ip} has made {len(windows[ip])} requests in the last 5 minutes.")
+                    with blocked_ips_lock:
+                        blocked_ips.add(ip)
+                        with block_to_propose_lock:
+                            block_to_propose=list(blocked_ips)  
+                       
             else:
                 if ip in blocked_ips:
-                    blocked_ips.remove(ip)
-                    block_to_propose=list(blocked_ips)
-                    #request_rate_track.update_blocklist(blocked_ips) #TODO 
-                    print(f"Alert: IP {ip} has been removed from blocked list. ", ip)
-                    
+                    with blocked_ips_lock:
+                        blocked_ips.remove(ip)
+                        with block_to_propose_lock:
+                            block_to_propose=list(blocked_ips)
+                            logging.info(f"Alert: IP {ip} has been removed from blocked list. ")
+                        
 
 #--------------/Application Logic---------------
 
@@ -661,12 +683,8 @@ def pbft_endpoint():
     '''
     try:
         data = request.get_json()
-        pbft_control_messages.append(data)
-        # Process the control information
-        #print(f"Received control information: {data}")
-        #print(type(data))
-
-        # You can add your processing logic here
+        with pbft_control_messages_lock:
+            pbft_control_messages.append(data)
 
         # Return a success response
         return Response(status=200)
@@ -684,7 +702,7 @@ def http_send_POST(message, IP):
     try:
         response = requests.post(url, data=message, headers=headers)
     except requests.exceptions.RequestException as e:
-        print(f"Request Failed with error {e}")
+        logging.error(f"Request Failed with error {e}")
     
 
 def process_messages():
@@ -695,8 +713,8 @@ def process_messages():
     
     while(True):
         if pbft_control_messages:
-            message = pbft_control_messages.popleft()
-            #print("Processed message: ", message, type(message))
+            with pbft_control_messages_lock:
+                message = pbft_control_messages.popleft()
             while(type(message)==str):
                 message = json.loads(message) # for deserialization TODO Fix multiple levels of serialization
             if message['type']== 'INITIAL':
@@ -728,7 +746,7 @@ def initiate_DAG_system():
     
 if __name__ == '__main__':
     set_my_node()
-    print(f'My node IP: {my_node.ip}')
+    logging.info(f'node IP: {my_node.ip}')
     initialize_nodes()
     
     #create a thread for flask application.
@@ -738,6 +756,10 @@ if __name__ == '__main__':
     # Create a thread for the traffic monitoring
     traffic_thread = threading.Thread(target=traffic_rate_tracking)
     traffic_thread.daemon = True
+    
+    # Create a thread for reviewing the ips in window
+    window_ips_review_thread = threading.Thread(target=review_ips_in_window)
+    window_ips_review_thread.daemon = True
     
     # Create a thread for message processing
     message_processing_thread = threading.Thread(target=process_messages)
@@ -750,6 +772,7 @@ if __name__ == '__main__':
     # Start all threads
     flask_thread.start()
     traffic_thread.start()
+    window_ips_review_thread.start()
     message_processing_thread.start()
     dag_construction_thread.start()
     
@@ -766,6 +789,7 @@ if __name__ == '__main__':
     # Keep the main thread alive
     flask_thread.join()
     traffic_thread.join()
+    window_ips_review_thread.join()
     message_processing_thread.join()
     dag_construction_thread.join()
     

@@ -4,7 +4,7 @@
 SERVERS=("ec2-54-215-43-60.us-west-1.compute.amazonaws.com" "34.201.142.18" "52.74.244.78" "ec2-18-132-44-229.eu-west-2.compute.amazonaws.com")
 USERNAME="ec2-user"
 LOCAL_PATH="/Users/taanyanithyaanand/Downloads/DSLab/DecentralizedCDN/DCDN_Node_Configuration"
-REMOTE_PATH="/home/ec2-user/version2/"
+REMOTE_PATH="/home/ec2-user/version3/"
 SSH_KEY_DIR="/Users/taanyanithyaanand/Downloads/DSLab"
 KEYS=("DCDN.pem" "dcdn-us-east-1.pem" "dcdn-ap-southeast-1.pem" "dcdn-eu-west2.pem")
 
