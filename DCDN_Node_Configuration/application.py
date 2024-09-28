@@ -13,6 +13,8 @@ from ecdsa.util import number_to_string, string_to_number
 from hashlib import sha256
 import socket
 import logging
+import os
+import csv
 
 app = Flask(__name__)
 logging.basicConfig(level = logging.INFO) 
@@ -25,6 +27,11 @@ pbft_port = 8080
 my_node = definitions.current_node(IP='54.215.43.60',node_id=1, total_nodes= 4, f=1) #TOBE set separately for each node.
 pbft_control_messages = deque() #these are the reliable broadcast messages. 
 pbft_control_messages_lock = threading.Lock()
+to_block_ips = {} #{ip:Identified_time}
+to_block_ips_lock = threading.Lock()
+to_unblock_ips = {} #{ip:Indetified_time}
+to_unblock_ips_lock = threading.Lock()
+
 
 # Vertices for the DAGRider is above the reliable Broadcast layer.
 DAG = defaultdict(set)
@@ -377,7 +384,7 @@ def create_new_vertex(round):
             logging.info('There are some IPs to Block')
             block = block_to_propose
     
-    vertex_id = str(my_node.node_id) + ':' + str(round) #TODO
+    vertex_id = str(my_node.node_id) + ':' + str(round) 
     source = my_node.node_id
     if(round == 1):
         #round1 will not reference anything.
@@ -570,10 +577,37 @@ def order_vertices(leader_stack):
         for round in vertices_to_deliver:
             for vertex in vertices_to_deliver[round]:
                 print(vertex.vertex_id, end=" ")
-                # TODO output a_deliver(vertex.block, vertex.round, vertex.source)
                 a_deliver(vertex)
                 delivered_dag_vertices.append(vertex)
         print()
+        
+    os.makedirs("metrics", exist_ok=True)
+    
+    block_file_name = f"metrics/block_time_delta_node_{my_node.node_id}.csv"
+    file_exists = os.path.exists(block_file_name)
+    with to_block_ips_lock:
+        for ip in list(to_block_ips.keys()):
+            if ip in my_node.ips_to_block:
+                identified_time = to_block_ips.pop(ip)
+                block_time = time.time()
+                with open(block_file_name, mode='a', newline='') as file:
+                    writer = csv.writer(file)
+                    if not file_exists:
+                        writer.writerow(['Nnodes', 'TimeIdentified', 'TimeBlocked', 'TimeDelta'])                    
+                    writer.writerow([my_node.total_nodes, identified_time, block_time, block_time-identified_time])
+    
+    unblock_file_name = f"metrics/unblock_time_delta_node_{my_node.node_id}.csv"
+    file_exists = os.path.exists(unblock_file_name)
+    with to_unblock_ips_lock:
+        for ip in list(to_unblock_ips.keys()):
+            if ip not in my_node.ips_to_block:
+                identified_time = to_unblock_ips.pop(ip)
+                unblock_time = time.time()
+                with open(unblock_file_name, mode='a', newline='') as file:
+                    writer = csv.writer(file)
+                    if not file_exists:
+                        writer.writerow(['Nnodes', 'TimeIdentified', 'TimeUnblocked', 'TimeDelta'])                    
+                    writer.writerow([my_node.total_nodes, identified_time, unblock_time, unblock_time-identified_time])
     
     request_rate_track.update_blocklist(my_node.ips_to_block)
     
@@ -586,6 +620,7 @@ def a_deliver(vertex):
         if ip not in my_node.ips_to_block:
             my_node.ips_to_block.append(ip)
     
+            
 #--------------/DAGRider-----------------------
 
 #--------------Application Logic---------------
@@ -615,7 +650,9 @@ def review_ips_in_window():
                         if ip in blocked_ips:
                             blocked_ips.remove(ip) 
                             with block_to_propose_lock:
-                                block_to_propose=list(blocked_ips) #TODO lock on block_to_propose
+                                block_to_propose=list(blocked_ips)
+                                with to_unblock_ips_lock:
+                                    to_unblock_ips[ip] = time.time()
                                 logging.info(f"Alert: IP {ip} has been identified to be removed from blocked list. ")
         time.sleep(5)
     
@@ -660,6 +697,8 @@ def traffic_rate_tracking():
                 if ip not in blocked_ips:
                     with blocked_ips_lock:
                         blocked_ips.add(ip)
+                        with to_block_ips_lock:
+                            to_block_ips[ip] = time.time()
                         with block_to_propose_lock:
                             block_to_propose=list(blocked_ips)  
                        
@@ -669,7 +708,9 @@ def traffic_rate_tracking():
                         blocked_ips.remove(ip)
                         with block_to_propose_lock:
                             block_to_propose=list(blocked_ips)
-                            logging.info(f"Alert: IP {ip} has been removed from blocked list. ")
+                            with to_unblock_ips_lock:
+                                to_unblock_ips[ip] = time.time()
+                            logging.info(f"Alert: IP {ip} has been identified to be removed from blocked list. ")
                         
 
 #--------------/Application Logic---------------
@@ -738,7 +779,6 @@ def initiate_DAG_system():
     '''
     Create a new vertex for round 1 with empty block and start the DAG cycle
     '''
-    #TODO
 
     with dag_round_lock:
         first_vertex = create_new_vertex(dag_round)
