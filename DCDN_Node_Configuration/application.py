@@ -227,6 +227,22 @@ def deliver_vertex(message):
     new_vertex.weak_edges = weak_edges
     logging.info(f"VertexDelivery - MessageId: {message['id']} VertexID: {new_vertex.vertex_id}")
     my_node.delivered_messages.add(message['id'])
+    
+    #Identify the time_delta for reliable_bcast
+    os.makedirs("metrics", exist_ok=True)
+    rbcast_time_delta_filename = "metrics/rbcast_time_delta.csv"
+    file_exists = os.path.exists()
+    if new_vertex.source == my_node.ip:
+        with open(rbcast_time_delta_filename, mode='a', newline='') as file:
+            writer = csv.writer(file)
+            with to_block_ips.lock():
+                for ip in list(to_block_ips.keys()):
+                    if ip in new_vertex.block:
+                        time_delta = time.time() - to_block_ips[ip] 
+                        if not file_exists:
+                            writer.writerow(['rbcast_time_delta'])                    
+                        writer.writerow([time_delta])
+       
     #vertex is constructed. Deliver it to the DAG Layer
     r_delivery_to_DAG(new_vertex)
     
