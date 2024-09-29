@@ -231,7 +231,7 @@ def deliver_vertex(message):
     #Identify the time_delta for reliable_bcast
     os.makedirs("metrics", exist_ok=True)
     rbcast_time_delta_filename = "metrics/rbcast_time_delta.csv"
-    file_exists = os.path.exists()
+    file_exists = os.path.exists(rbcast_time_delta_filename)
     if new_vertex.source == my_node.ip:
         with open(rbcast_time_delta_filename, mode='a', newline='') as file:
             writer = csv.writer(file)
