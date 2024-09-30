@@ -2,7 +2,7 @@
 import csv
 import matplotlib.pyplot as plt
 
-n_nodes = 4
+n_nodes = 2
 
 def read_block_unblock_time_delta():  
     block_rows = []
@@ -14,7 +14,7 @@ def read_block_unblock_time_delta():
             csv_reader = csv.reader(file)
             #Skip reading header
             next(csv_reader)
-            for row in csv_reader():
+            for row in csv_reader:
                 block_rows.append(row)
                 
         unblock_file_name = f"metrics/unblock_time_delta_node_{i}.csv"
@@ -22,7 +22,7 @@ def read_block_unblock_time_delta():
             csv_reader = csv.reader(file)
             #Skip reading header
             next(csv_reader)
-            for row in csv_reader():
+            for row in csv_reader:
                 unblock_rows.append(row)
      
     return block_rows, unblock_rows
@@ -34,7 +34,7 @@ def read_rbcast_time_delta():
         csv_reader = csv.reader(file)
         #Skip reading header
         next(csv_reader)
-        for row in csv_reader():
+        for row in csv_reader:
             time_delta_rows.append(row)
             
     return time_delta_rows
@@ -53,6 +53,8 @@ def plot_block_time_delta(block_rows):
     plt.xlabel('Datapoints for block time delta')
     plt.ylabel('Time delta')
     plt.title(f'Time delta between identifying block and actual block in a system of {n_nodes} nodes')
+    plt.grid(True)
+    plt.show()
 
 def plot_unblock_time_delta(unblock_rows):
     #block_rows : Array of rows
@@ -68,7 +70,9 @@ def plot_unblock_time_delta(unblock_rows):
     plt.xlabel('Datapoints for unblock time delta')
     plt.ylabel('Time delta')
     plt.title(f'Time delta between identifying unblock and actual unblock in a system of {n_nodes} nodes')
-
+    plt.grid(True)
+    plt.show()
+    
 def plot_rbcast_overhead(time_delta_rows):
     counter = 1
     data_points = []
@@ -83,7 +87,9 @@ def plot_rbcast_overhead(time_delta_rows):
     plt.xlabel('Datapoints for rbcast overhead')
     plt.ylabel('Time delta')
     plt.title(f'Reliable Broadcast overhead in a system of {n_nodes} nodes')
-
+    plt.grid(True)
+    plt.show()
+    
 
 if __name__ == '__main__':
     block_rows, unblock_rows = read_block_unblock_time_delta()
