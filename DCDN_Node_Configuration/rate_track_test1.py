@@ -19,7 +19,7 @@ def send_requests(target_url, uri_list, total_requests, window_seconds):
         except requests.exceptions.RequestException as e:
             print(f"Request {i}: Failed with error {e}")
         ind = (ind + 1)%total_uri
-        time.sleep(interval)
+        time.sleep(0.5)
     
 if __name__ == "__main__":
     target_ips = ['54.215.43.60','34.201.142.18','52.74.244.78','18.132.44.229']
@@ -29,8 +29,6 @@ if __name__ == "__main__":
 
     for ip in target_ips:
         print(f"Targeting IP : {ip}")
-        send_requests('http://'+ ip, uri_list, request_count, window_seconds)
-        time.sleep(100)
         send_requests('http://'+ ip, uri_list, request_count, window_seconds)
         time.sleep(100)
         send_requests('http://'+ ip, uri_list, request_count, window_seconds)

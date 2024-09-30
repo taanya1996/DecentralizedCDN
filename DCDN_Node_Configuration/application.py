@@ -31,6 +31,7 @@ to_block_ips = {} #{ip:Identified_time}
 to_block_ips_lock = threading.Lock()
 to_unblock_ips = {} #{ip:Indetified_time}
 to_unblock_ips_lock = threading.Lock()
+rbcast_ips = set()
 
 
 # Vertices for the DAGRider is above the reliable Broadcast layer.
@@ -230,15 +231,16 @@ def deliver_vertex(message):
     
     #Identify the time_delta for reliable_bcast
     os.makedirs("metrics", exist_ok=True)
-    rbcast_time_delta_filename = "metrics/rbcast_time_delta.csv"
+    rbcast_time_delta_filename = f"metrics/rbcast_time_delta_{my_node.node_id}.csv"
     file_exists = os.path.exists(rbcast_time_delta_filename)
     if new_vertex.source == my_node.node_id:
         with open(rbcast_time_delta_filename, mode='a', newline='') as file:
             writer = csv.writer(file)
             with to_block_ips_lock:
                 for ip in list(to_block_ips.keys()):
-                    if ip in new_vertex.block:
+                    if ip in new_vertex.block and ip in rbcast_ips:
                         time_delta = time.time() - to_block_ips[ip] 
+                        rbcast_ips.remove(ip)
                         if not file_exists:
                             writer.writerow(['rbcast_time_delta'])                    
                         writer.writerow([time_delta])
@@ -716,6 +718,7 @@ def traffic_rate_tracking():
                         blocked_ips.add(ip)
                         with to_block_ips_lock:
                             to_block_ips[ip] = time.time()
+                            rbcast_ips.add(ip)
                         with block_to_propose_lock:
                             block_to_propose=list(blocked_ips)  
                        
