@@ -2,7 +2,7 @@
 import csv
 import matplotlib.pyplot as plt
 
-n_nodes = 2
+n_nodes = 4
 
 def read_block_unblock_time_delta():  
     block_rows = []
@@ -15,6 +15,7 @@ def read_block_unblock_time_delta():
             #Skip reading header
             next(csv_reader)
             for row in csv_reader:
+                row = [int(val) if val.isdigit() else float(val) if val.replace('.','').isdigit() else val for val in row]
                 block_rows.append(row)
                 
         unblock_file_name = f"metrics/unblock_time_delta_node_{i}.csv"
@@ -23,19 +24,22 @@ def read_block_unblock_time_delta():
             #Skip reading header
             next(csv_reader)
             for row in csv_reader:
+                row = [int(val) if val.isdigit() else float(val) if val.replace('.','').isdigit() else val for val in row]
                 unblock_rows.append(row)
      
     return block_rows, unblock_rows
 
 def read_rbcast_time_delta():
     time_delta_rows = []
-    file_name = "metrics/rbcast_time_delta.csv"
-    with open(file_name, "r") as file:
-        csv_reader = csv.reader(file)
-        #Skip reading header
-        next(csv_reader)
-        for row in csv_reader:
-            time_delta_rows.append(row)
+    for i in range(1, n_nodes+1):
+        file_name = f"metrics/rbcast_time_delta_{i}.csv"
+        with open(file_name, "r") as file:
+            csv_reader = csv.reader(file)
+            #Skip reading header
+            next(csv_reader)
+            for row in csv_reader:
+                row = [int(val) if val.isdigit() else float(val) if val.replace('.','').isdigit() else val for val in row]
+                time_delta_rows.append(row)
             
     return time_delta_rows
 
@@ -50,6 +54,7 @@ def plot_block_time_delta(block_rows):
         time_delta.append(row[-1])
     
     plt.plot(data_points, time_delta, marker = 'o', linestyle='-', color='b')
+    plt.ylim(min(time_delta) - 1, max(time_delta) + 1)
     plt.xlabel('Datapoints for block time delta')
     plt.ylabel('Time delta')
     plt.title(f'Time delta between identifying block and actual block in a system of {n_nodes} nodes')
@@ -89,7 +94,6 @@ def plot_rbcast_overhead(time_delta_rows):
     plt.title(f'Reliable Broadcast overhead in a system of {n_nodes} nodes')
     plt.grid(True)
     plt.show()
-    
 
 if __name__ == '__main__':
     block_rows, unblock_rows = read_block_unblock_time_delta()
