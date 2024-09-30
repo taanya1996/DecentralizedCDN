@@ -28,10 +28,10 @@ if __name__ == "__main__":
     target_url = "http://13.52.182.233" #CDN Node IP
     uri_list = ['/', '/project_overview', '/problem_statement', '/architecture', '/application_components', '/metrics', '/testing' ]# Replace with your desired endpoint
     request_count = 200  # Number of requests
-    window_seconds = 300  # Duration of the window in seconds (5 minutes)
+    window_seconds = 60  # Duration of the window in seconds (5 minutes)
 
     for ip in target_ips:
         print(f"Targeting IP : {ip}")
         send_requests('http://'+ ip, uri_list, request_count, window_seconds)
-        time.sleep(350)
+        time.sleep(100)
         send_requests('http://'+ ip, uri_list, request_count, window_seconds)

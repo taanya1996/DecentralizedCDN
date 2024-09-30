@@ -14,7 +14,7 @@ for i in "${!SERVERS[@]}"; do
     SSH_KEY_PATH="$SSH_KEY_DIR/$KEY"
 
     echo "Deploying to $SERVER"
-    ssh -i $SSH_KEY_PATH $USERNAME@$SERVER "rm -rf $REMOTE_PATH/*"
+    ssh -i $SSH_KEY_PATH $USERNAME@$SERVER "sudo rm -rf $REMOTE_PATH/*"
 
     scp -i $SSH_KEY_PATH -r $LOCAL_PATH $USERNAME@$SERVER:$REMOTE_PATH
 

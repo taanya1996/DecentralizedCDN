@@ -232,10 +232,10 @@ def deliver_vertex(message):
     os.makedirs("metrics", exist_ok=True)
     rbcast_time_delta_filename = "metrics/rbcast_time_delta.csv"
     file_exists = os.path.exists(rbcast_time_delta_filename)
-    if new_vertex.source == my_node.ip:
+    if new_vertex.source == my_node.node_id:
         with open(rbcast_time_delta_filename, mode='a', newline='') as file:
             writer = csv.writer(file)
-            with to_block_ips.lock():
+            with to_block_ips_lock:
                 for ip in list(to_block_ips.keys()):
                     if ip in new_vertex.block:
                         time_delta = time.time() - to_block_ips[ip] 
@@ -512,7 +512,8 @@ def choose_leader(w):
     
     #TODO wait until a leader is chosen.
     while not my_node.leaders.get(w,None):
-        time.sleep(1)
+        #time.sleep(1)
+        pass
         #TODO Should we just wait or sleep for 1 sec. 1 sec delay is acceptable?
     
     logging.info(f'Leader for the wave {w} is {my_node.leaders.get(w,None)}')
@@ -642,8 +643,8 @@ def a_deliver(vertex):
 #--------------Application Logic---------------
 windows = defaultdict(deque) 
 windows_lock = threading.Lock()
-request_threshold = 100
-window_duration = timedelta(minutes=5)
+request_threshold = 50
+window_duration = timedelta(minutes=1)
 blocked_ips = set()
 blocked_ips_lock = threading.Lock()
 
@@ -670,7 +671,7 @@ def review_ips_in_window():
                                 with to_unblock_ips_lock:
                                     to_unblock_ips[ip] = time.time()
                                 logging.info(f"Alert: IP {ip} has been identified to be removed from blocked list. ")
-        time.sleep(5)
+        time.sleep(1)
     
 
 def traffic_rate_tracking():
@@ -684,8 +685,8 @@ def traffic_rate_tracking():
     request_rate_track.clear_blocklist()
     
     log_file = '/var/log/nginx/access.log'
-    request_threshold = 100
-    window_duration = timedelta(minutes=5)
+    request_threshold = 50
+    window_duration = timedelta(minutes=1)
     
     #windows = defaultdict(deque) #Dictionary with IP as key and deque as values holding the timestamp
     
@@ -696,7 +697,7 @@ def traffic_rate_tracking():
         while(True):
             log_line = file.readline()
             if not log_line:
-                time.sleep(1)
+                #time.sleep(1)
                 continue
             
             ip, timestamp =request_rate_track.parse_line(log_line)
@@ -783,7 +784,8 @@ def process_messages():
             
         else:
             #no messages yet in the queue. So sleep welll!!!!!
-            time.sleep(1)
+            #time.sleep(1)
+            pass
     
     
 def start_flask():
