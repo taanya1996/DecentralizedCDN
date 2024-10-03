@@ -27,11 +27,11 @@ pbft_port = 8080
 my_node = definitions.current_node(IP='54.215.43.60',node_id=1, total_nodes= 4, f=1) #TOBE set separately for each node.
 pbft_control_messages = deque() #these are the reliable broadcast messages. 
 pbft_control_messages_lock = threading.Lock()
-to_block_ips = {} #{ip:Identified_time}
+to_block_ips = defaultdict() #{vertex_id: Identified_time}
 to_block_ips_lock = threading.Lock()
-to_unblock_ips = {} #{ip:Indetified_time}
+to_unblock_ips = defaultdict() #{vertex_id: Identified_time}
 to_unblock_ips_lock = threading.Lock()
-rbcast_ips = set()
+rbcast_ips = defaultdict() #{vertex_id: time}
 
 
 # Vertices for the DAGRider is above the reliable Broadcast layer.
@@ -236,14 +236,11 @@ def deliver_vertex(message):
     if new_vertex.source == my_node.node_id:
         with open(rbcast_time_delta_filename, mode='a', newline='') as file:
             writer = csv.writer(file)
-            with to_block_ips_lock:
-                for ip in list(to_block_ips.keys()):
-                    if ip in new_vertex.block and ip in rbcast_ips:
-                        time_delta = time.time() - to_block_ips[ip] 
-                        rbcast_ips.remove(ip)
-                        if not file_exists:
-                            writer.writerow(['rbcast_time_delta'])                    
-                        writer.writerow([time_delta])
+            time_delta = time.time() - rbcast_ips[new_vertex.vertex_id]
+            rbcast_ips.pop(new_vertex.vertex_id)
+            if not file_exists:
+                writer.writerow(['rbcast_time_delta'])                    
+            writer.writerow([time_delta])
        
     #vertex is constructed. Deliver it to the DAG Layer
     r_delivery_to_DAG(new_vertex)
@@ -407,12 +404,14 @@ def create_new_vertex(round):
     if(round == 1):
         #round1 will not reference anything.
         new_vertex =  definitions.Vertex(vertex_id, round, source, block, [], [])
+        rbcast_ips[vertex_id] = time.time()
         return new_vertex
     strong_edges = list(DAG[round-1])
     logging.info(f'No of strong edges for the vertex {vertex_id}: {len(strong_edges)}')
     new_vertex = definitions.Vertex(vertex_id,round, source, block, strong_edges)
     #set weak edges
     set_weak_edges(new_vertex)
+    rbcast_ips[vertex_id] = time.time()
     return new_vertex
     
 
@@ -584,6 +583,7 @@ def wave_ready(w):
     
 def order_vertices(leader_stack):
     my_node.ips_to_block = []
+    dag_vertices_ids_delivered = set()
     while(len(leader_stack)>0):
         leader_vertex = leader_stack.pop()
         vertices_to_deliver = defaultdict(set)
@@ -597,6 +597,7 @@ def order_vertices(leader_stack):
             for vertex in vertices_to_deliver[round]:
                 print(vertex.vertex_id, end=" ")
                 a_deliver(vertex)
+                dag_vertices_ids_delivered.add(vertex.vertex_id)
                 delivered_dag_vertices.append(vertex)
         print()
         
@@ -604,23 +605,25 @@ def order_vertices(leader_stack):
     
     block_file_name = f"metrics/block_time_delta_node_{my_node.node_id}.csv"
     file_exists = os.path.exists(block_file_name)
+    
     with to_block_ips_lock:
-        for ip in list(to_block_ips.keys()):
-            if ip in my_node.ips_to_block:
-                identified_time = to_block_ips.pop(ip)
+        for vertex_id in list(to_block_ips.keys()):
+            if vertex_id in dag_vertices_ids_delivered:
+                identified_time = to_block_ips.pop(vertex_id)
                 block_time = time.time()
                 with open(block_file_name, mode='a', newline='') as file:
                     writer = csv.writer(file)
                     if not file_exists:
                         writer.writerow(['Nnodes', 'TimeIdentified', 'TimeBlocked', 'TimeDelta'])                    
                     writer.writerow([my_node.total_nodes, identified_time, block_time, block_time-identified_time])
-    
+        
     unblock_file_name = f"metrics/unblock_time_delta_node_{my_node.node_id}.csv"
     file_exists = os.path.exists(unblock_file_name)
+    
     with to_unblock_ips_lock:
-        for ip in list(to_unblock_ips.keys()):
-            if ip not in my_node.ips_to_block:
-                identified_time = to_unblock_ips.pop(ip)
+        for vertex_id in list(to_unblock_ips.keys()):
+            if vertex_id in dag_vertices_ids_delivered:
+                identified_time = to_unblock_ips.pop(vertex_id)
                 unblock_time = time.time()
                 with open(unblock_file_name, mode='a', newline='') as file:
                     writer = csv.writer(file)
@@ -665,13 +668,15 @@ def review_ips_in_window():
             
             with windows_lock:
                 if len(windows[ip])< request_threshold:
-                    with blocked_ips_lock:
-                        if ip in blocked_ips:
-                            blocked_ips.remove(ip) 
-                            with block_to_propose_lock:
-                                block_to_propose=list(blocked_ips)
-                                with to_unblock_ips_lock:
-                                    to_unblock_ips[ip] = time.time()
+                    if ip in blocked_ips:
+                        with dag_round_lock:
+                            with blocked_ips_lock:
+                                blocked_ips.remove(ip)
+                                with block_to_propose_lock:
+                                    block_to_propose=list(blocked_ips)
+                            with to_unblock_ips_lock:
+                                vertex_id = f"{my_node.node_id}:{dag_round+1}"
+                                to_unblock_ips[vertex_id] = time.time()
                                 logging.info(f"Alert: IP {ip} has been identified to be removed from blocked list. ")
         time.sleep(1)
     
@@ -714,24 +719,28 @@ def traffic_rate_tracking():
             #check whether the corresponding IP has exceeded the threshold
             if len(windows[ip]) >= request_threshold:
                 if ip not in blocked_ips:
-                    with blocked_ips_lock:
-                        blocked_ips.add(ip)
+                    with dag_round_lock:            
+                        with blocked_ips_lock:
+                            blocked_ips.add(ip)
+                            with block_to_propose_lock:
+                                block_to_propose=list(blocked_ips)
                         with to_block_ips_lock:
-                            to_block_ips[ip] = time.time()
-                            rbcast_ips.add(ip)
-                        with block_to_propose_lock:
-                            block_to_propose=list(blocked_ips)  
+                            vertex_id = f"{my_node.node_id}:{dag_round+1}"
+                            to_block_ips[vertex_id] = time.time()
+                          
                        
             else:
                 if ip in blocked_ips:
-                    with blocked_ips_lock:
-                        blocked_ips.remove(ip)
-                        with block_to_propose_lock:
-                            block_to_propose=list(blocked_ips)
-                            with to_unblock_ips_lock:
-                                to_unblock_ips[ip] = time.time()
-                            logging.info(f"Alert: IP {ip} has been identified to be removed from blocked list. ")
-                        
+                    with dag_round_lock:
+                        with blocked_ips_lock:
+                            blocked_ips.remove(ip)
+                            with block_to_propose_lock:
+                                block_to_propose=list(blocked_ips)
+                        with to_unblock_ips_lock:
+                            vertex_id = f"{my_node.node_id}:{dag_round+1}"
+                            to_unblock_ips[vertex_id] = time.time()
+                        logging.info(f"Alert: IP {ip} has been identified to be removed from blocked list. ")
+                            
 
 #--------------/Application Logic---------------
 
