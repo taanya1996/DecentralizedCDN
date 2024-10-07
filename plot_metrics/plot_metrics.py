@@ -1,6 +1,7 @@
 #Script to plot metrics
 import csv
 import matplotlib.pyplot as plt
+import re
 
 n_nodes = 4
 
@@ -42,6 +43,31 @@ def read_rbcast_time_delta():
                 time_delta_rows.append(row)
             
     return time_delta_rows
+
+def plot_latency_metrics():
+    data_points = [i for i in range(1, n_nodes+1)]
+    latency = []
+    for i in range(1, n_nodes+1):
+        file_name = f"metrics/latecy_data_{i}.txt"
+        with open(file_name, "r") as file:
+            lines =  file.readlines()
+        
+        node_latencies = []
+        for line in lines:
+            latency_vals = line.split(' ')
+            node_latencies.append(latency_vals[-4])
+        
+        avg_latency = sum(node_latencies)/len(node_latencies)
+        latency.append(avg_latency)
+    
+    plt.plot(data_points, latency, marker = 'o', linestyle='-', color='b')
+    plt.ylim(min(latency) - 1, max(latency) + 1)
+    plt.xlabel('Nodes')
+    plt.ylabel('Avg Latency to communicate with nodes.')
+    plt.title(f'Average Latency between {n_nodes} nodes')
+    plt.grid(True)
+    plt.show()
+
 
 def plot_block_time_delta(block_rows):
     #block_rows : Array of rows
@@ -98,6 +124,7 @@ def plot_rbcast_overhead(time_delta_rows):
 if __name__ == '__main__':
     block_rows, unblock_rows = read_block_unblock_time_delta()
     time_delta_rows = read_rbcast_time_delta()
+    plot_latency_metrics()
     plot_block_time_delta(block_rows)
     plot_unblock_time_delta(unblock_rows)
     plot_rbcast_overhead(time_delta_rows)
