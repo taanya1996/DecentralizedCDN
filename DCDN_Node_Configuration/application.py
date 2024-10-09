@@ -644,7 +644,7 @@ def order_vertices(leader_stack):
         
         print(f'Vertices delivered are: ', end=" ")
         for round in vertices_to_deliver:
-            for vertex in vertices_to_deliver[round]:
+            for vertex in sorted(vertices_to_deliver[round], key=lambda x: x.vertex_id):
                 print(vertex.vertex_id, end=" ")
                 a_deliver(vertex)
                 dag_vertices_ids_delivered.add(vertex.vertex_id)
