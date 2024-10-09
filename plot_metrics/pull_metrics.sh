@@ -13,7 +13,7 @@ for i in "${!SERVERS[@]}"; do
 
     echo "Pulling metrics from $SERVER"
     scp -i $SSH_KEY_PATH -r $USERNAME@$SERVER:$REMOTE_PATH $LOCAL_PATH 
-    scp -i $SSH_KEY_PATH -r $USERNAME@$SERVER:'/home/ec2-user/*.txt' $LOCAL_PATH 
+    scp -i $SSH_KEY_PATH -r $USERNAME@$SERVER:'/home/ec2-user/*.txt' $LOCAL_PATH/metrics
 
     echo "Metrics from $SERVER successfully fetched"
 done
