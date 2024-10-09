@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/home/ec2-user/.local/lib/python3.9/site-packages')
 from flask import Flask, request, jsonify, Response
 import time
 from collections import defaultdict, deque
@@ -15,6 +17,8 @@ import socket
 import logging
 import os
 import csv
+import random
+from secretshare import Secret, SecretShare, Share
 
 app = Flask(__name__)
 logging.basicConfig(level = logging.INFO) 
@@ -185,7 +189,24 @@ def deliver_message(message):
         #deliver the threshold signature.
         deliver_partial_signature(message)
         return 
+    elif message['message_type'] == 'SS':
+        #deliver secret share
+        deliver_secret_share(message)
+        return
     logging.error('Something is wrong delivering the message')
+
+def deliver_secret_share(message):
+    '''
+    The secret share is accepted through reliable bcast.
+    '''
+    ss_message = message['message']
+    node_id = ss_message['node_id']
+    wave = ss_message['wave']
+    secret_share = Share()
+    secret_share.from_hex(ss_message['secret_share'])
+    
+    my_node.delivered_messages.add(message['id'])
+    receive_secret_share(node_id, wave, secret_share)
 
 def deliver_partial_signature(message):
     '''
@@ -429,13 +450,38 @@ def r_delivery_to_DAG(vertex):
 #--------------/DAG Layer-----------------------
 
 #--------------Global Perfect Coin-----------------------
+def generate_secret_share(node_id, wave):
+    share = Share(node_id, wave)
+    ss_message = definitions.SS_Message(node_id, wave, share)
+    reliable_bcast(ss_message, 'SS')
+    
+def receive_secret_share(node_id, wave, secret_share):
+    my_node.secret_share.secret_shares[wave][node_id] = secret_share
+    
+    if len(my_node.secret_share.secret_shares[wave]) >= my_node.secret_share.threshold:
+        combine_secret_shares(wave)
+        #If combined secret is computed then compute global perfect coin
+        if get_secret(wave):
+            compute_global_coin(wave)
+
+def combine_secret_shares(wave):
+    if wave not in my_node.secret_share.secrets:
+        node_ids = my_node.secret_share.secret_shares[wave].keys()
+        shares = [] 
+        for node_id in node_ids:
+            shares.append(my_node.secret_share.secret_shares[wave][node_id]) 
+        shamir_secret_share = SecretShare(my_node.secret_share.threshold, my_node.secret_share.total_nodes, shares=shares)
+        secret = shamir_secret_share.combine()
+        my_node.secret_share.secrets[wave] = secret
+
+def get_secret(wave):
+    return my_node.secret_share.secrets.get(wave, None)
+
 def sign( node_id, wave, private_key_share):
         #here node_id =  my_node.node_id
         message = str(wave).encode()
         signature_share = private_key_share.sign(message)
         ps_message = definitions.PS_Message(node_id, wave, signature_share)
-        #self.broadcast_signature(ps_message, nodes)
-        #send reliable_bcast_here
         reliable_bcast(ps_message, 'TS')
     
 
@@ -483,20 +529,23 @@ def compute_global_coin(wave):
     if wave in my_node.leaders:
         return #Global perfect coin is already computed and leader is chosen for the wave.
     
-    wave_threshold_signature = get_threshold_signature(wave)
+    # wave_threshold_signature = get_threshold_signature(wave)
     
-    if wave_threshold_signature:
-        h = sha256(wave_threshold_signature).hexdigest()
-        combined_value = int(h, 16)
-        leader = (combined_value % my_node.total_nodes) + 1
+    # if wave_threshold_signature:
+    #     h = sha256(wave_threshold_signature).hexdigest()
+    #     combined_value = int(h, 16)
+    #     leader = (combined_value % my_node.total_nodes) + 1
+    #     my_node.leaders[wave] = leader
+    
+    combined_secret = get_secret(wave)
+    
+    if combined_secret:
+        #combined_secret = int(sha256(str(combined_secret).encode()).hexdigest(), 16)
+        combined_secret = sum([ord(char) for char in str(combined_secret)])
+        leader = (combined_secret % my_node.total_nodes) + 1
         my_node.leaders[wave] = leader
-    
+        
 
-def generate_random_value(w):
-    '''
-    param: (w) - wave
-    '''
-    sign(my_node.node_id, nodes, w, my_node.private_key_share)
 
 def choose_leader(w):
     '''
@@ -508,14 +557,15 @@ def choose_leader(w):
         return my_node.leaders[w]
     #else if the node has not generated the partial signature, generate it
     
-    if not my_node.threshold_signature.signatures.get(w, None) or not my_node.threshold_signature.signatures[w].get(my_node.node_id, None):
-        sign(my_node.node_id, w, my_node.private_key_share)
+    # if not my_node.threshold_signature.signatures.get(w, None) or not my_node.threshold_signature.signatures[w].get(my_node.node_id, None):
+    #     sign(my_node.node_id, w, my_node.private_key_share)
     
-    #TODO wait until a leader is chosen.
+    if not my_node.secret_share.secret_shares.get(w, None) or not my_node.secret_share.secret_shares[w].get(my_node.node_id, None):
+        generate_secret_share(my_node.node_id, w)
+    
     while not my_node.leaders.get(w,None):
         #time.sleep(1)
         pass
-        #TODO Should we just wait or sleep for 1 sec. 1 sec delay is acceptable?
     
     logging.info(f'Leader for the wave {w} is {my_node.leaders.get(w,None)}')
     return my_node.leaders.get(w, None) 

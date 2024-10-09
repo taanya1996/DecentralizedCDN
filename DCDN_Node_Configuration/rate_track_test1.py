@@ -30,8 +30,8 @@ if __name__ == "__main__":
     for ip in target_ips:
         print(f"Targeting IP : {ip}")
         send_requests('http://'+ ip, uri_list, request_count, window_seconds)
-        time.sleep(100)
+        time.sleep(120)
         send_requests('http://'+ ip, uri_list, request_count, window_seconds)
-        time.sleep(100)
+        time.sleep(120)
         send_requests('http://'+ ip, uri_list, request_count, window_seconds)
-        time.sleep(100)
+        time.sleep(120)

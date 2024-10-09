@@ -3,6 +3,7 @@ import hashlib
 from ecdsa import SigningKey, SECP256k1
 from ecdsa.util import number_to_string, string_to_number
 from hashlib import sha256
+from secretshare import Secret, SecretShare, Share
 import threading
 
 
@@ -25,6 +26,7 @@ class current_node:
         self.private_key_share = SigningKey.generate(curve=SECP256k1) #each node will get a different private key share
         self.public_key_share = self.private_key_share.get_verifying_key() #TODO should this info be sent to all the nodes?
         self.threshold_signature = ThresholdSignature(total_nodes, f+1)
+        self.secret_share = SecretShare(total_nodes, f+1)
         self.leaders = {} #leaders for every wave
         self.ips_to_block = []
 
@@ -53,6 +55,19 @@ class Vertex:
             'weak_edges': [edge.vertex_id for edge in self.weak_edges] if self.weak_edges else []
         }
 
+class SS_Message:
+    def __init__(self, node_id=None, wave=None, secret_share=None):
+        self.node_id = node_id
+        self.wave = wave
+        self.secret_share = secret_share.to_hex()
+        
+    def to_dict(self):
+        return {
+            'node_id' : self.node_id,
+            'wave' : self.wave,
+            'secret_share' : self.secret_share
+        }
+
 class PS_Message:
     def __init__(self, node_id=None, wave=None, signature_share=None):
         self.node_id = node_id # node_id of the Partial Signature
@@ -73,7 +88,12 @@ class ThresholdSignature:
         self.signatures = defaultdict(lambda: defaultdict(list)) # stores individual signature by wave and node
         self.threshold_signatures = {} #Combined threshold signatures by wave
 
-    
+class SecretShare:
+    def __init__(self, total_nodes, threshold):
+        self.total_nodes = total_nodes
+        self.threshold = threshold
+        self.secret_shares = defaultdict(lambda: defaultdict()) # stores individual secret share by wave and node
+        self.secrets = {} #combined secret by wave
     
 class Message:
     def  __init__(self, id=None, type=None, message_type =None, message=None, sender=None):
