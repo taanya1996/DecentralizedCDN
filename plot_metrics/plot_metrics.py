@@ -124,7 +124,7 @@ def plot_rbcast_overhead(time_delta_rows):
 if __name__ == '__main__':
     block_rows, unblock_rows = read_block_unblock_time_delta()
     time_delta_rows = read_rbcast_time_delta()
-    plot_latency_metrics()
+    #plot_latency_metrics()
     plot_block_time_delta(block_rows)
     plot_unblock_time_delta(unblock_rows)
     plot_rbcast_overhead(time_delta_rows)
