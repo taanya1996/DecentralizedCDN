@@ -19,6 +19,8 @@ import os
 import csv
 import random
 from secretshare import Secret, SecretShare, Share
+import networkx as nx
+import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 logging.basicConfig(level = logging.INFO) 
@@ -36,7 +38,7 @@ to_block_ips_lock = threading.Lock()
 to_unblock_ips = defaultdict() #{vertex_id: Identified_time}
 to_unblock_ips_lock = threading.Lock()
 rbcast_ips = defaultdict() #{vertex_id: time}
-
+visualize_counter = 1
 
 # Vertices for the DAGRider is above the reliable Broadcast layer.
 DAG = defaultdict(set)
@@ -400,7 +402,6 @@ def DAG_construction_procedure():
                 if dag_round%4==0:
                     # handle wave_ready
                     wave_ready(dag_round//4)
-        
                     
                 dag_round = dag_round +1
                 new_vertex = create_new_vertex(dag_round)
@@ -540,7 +541,6 @@ def compute_global_coin(wave):
     combined_secret = get_secret(wave)
     
     if combined_secret:
-        #combined_secret = int(sha256(str(combined_secret).encode()).hexdigest(), 16)
         combined_secret = sum([ord(char) for char in str(combined_secret)])
         leader = (combined_secret % my_node.total_nodes) + 1
         my_node.leaders[wave] = leader
@@ -615,11 +615,14 @@ def wave_ready(w):
     '''
     global decided_wave
     leader_vertex = get_wave_vertex_leader(w)
+        
     if leader_vertex==None:
         logging.info('Leader vertex is None. Hence, returning from wave_ready.')
+        visualize_dag()
         return 
     if not strong_path_from_round4(w, leader_vertex):
         logging.info('No 2f+1 strong paths for leader from round 4.')
+        visualize_dag()
         return 
     
     leader_stack.append(leader_vertex)
@@ -852,9 +855,68 @@ def process_messages():
     
 def start_flask():
     app.run(host='0.0.0.0', port=pbft_port)
-    
+
 #------------------/FLASK ENDPOINT----------------------
     
+#------------------DAG Visualization--------------------
+
+def visualize_dag():
+    global visualize_counter
+    logging.info("Visualizing DAG")
+    G = nx.DiGraph()
+    
+    latest_round = dag_round
+    
+    latest_wave = latest_round//4
+    if latest_round%4>0:
+        latest_wave +=1
+    
+    start_wave = max(1, latest_wave-2)
+    start_round = (start_wave-1)*4 + 1
+    pos = {}  
+    labels = {}
+    colors = []
+    for round in range(start_round, latest_round+1):
+        for j,vertex in enumerate(sorted(DAG[round], key=lambda vertex: vertex.vertex_id)):
+            G.add_node(vertex)
+            if round%4 ==1:
+                if (round//4 +1) in my_node.leaders and vertex.source == my_node.leaders[(round//4+1)]:
+                    colors.append('red')
+                else:
+                    colors.append('lightblue')
+            else:
+                colors.append('lightblue')
+            if round!=start_round:
+                for edge in vertex.strong_edges:
+                    if edge.round >=start_round:
+                        G.add_edge(vertex, edge, edge_type='strong')
+                
+                for edge in vertex.weak_edges:
+                    if edge.round >=start_round:
+                        G.add_edge(vertex, edge, edge_type='weak')
+            
+            pos[vertex] = (round-start_round+1, -vertex.source+1)
+            labels[vertex] = vertex.vertex_id        
+    plt.figure(figsize=(20, 8))
+    
+    #Drawing nodes
+    nx.draw(G, pos, with_labels=False, node_color=colors)
+    
+    nx.draw_networkx_labels(G, pos, labels, font_color='black')
+    
+    strong_edges = [(u, v) for u, v, d in G.edges(data=True) if d['edge_type'] == 'strong']
+    nx.draw_networkx_edges(G, pos, edgelist=strong_edges, edge_color='blue')
+    
+    weak_edges = [(u, v) for u, v, d in G.edges(data=True) if d['edge_type'] == 'weak']
+    nx.draw_networkx_edges(G, pos, edgelist=weak_edges, edge_color='yellow', style='dashed')
+            
+    plt.title('DAG of vertices')
+    plt.savefig(f"plot_node{my_node.node_id}_{visualize_counter}.png")
+    visualize_counter +=1
+    logging.info("DAG visualization completed")
+
+#------------------/DAG Visualization-------------------    
+        
 def initiate_DAG_system():
     '''
     Create a new vertex for round 1 with empty block and start the DAG cycle
@@ -905,7 +967,10 @@ if __name__ == '__main__':
     
     initiate_DAG_system()
         
-    
+    # for i in range(1,5):
+    #     time.sleep(30)
+    #     visualize_dag()
+        
     # Keep the main thread alive
     flask_thread.join()
     traffic_thread.join()
