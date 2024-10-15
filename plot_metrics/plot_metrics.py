@@ -38,7 +38,33 @@ def plot_latency_metrics():
     plt.grid(True)
     plt.show()
 
-
+def plot_dag_progress_rate():
+    colors = ['blue', 'green', 'red', 'purple']
+    counter = 1
+    min_time_delta = 10000000
+    max_time_delta =  -1
+    for i in range(1, n_nodes+1):
+        data_points = []
+        time_delta = []
+        file_name = f"metrics/dag_round_rate_{i}.csv"
+        with open(file_name, "r") as file:
+            csv_reader = csv.reader(file)
+            for row in csv_reader:
+                row = [float(val) for val in row]
+                data_points.append(counter)
+                counter += 1
+                time_delta.append(row[0])
+            min_time_delta = min(min_time_delta, min(time_delta))
+            max_time_delta = max(max_time_delta, max(time_delta))
+            plt.plot(data_points, time_delta, marker = 'o', linestyle='-', color=colors[i-1])
+    
+    plt.ylim(min_time_delta - 1, max_time_delta + 1)
+    plt.xlabel('Datapoints for round progress rate')
+    plt.ylabel('Time delta for round progress')
+    plt.title(f'Time delta to progress rounds in a system of {n_nodes} nodes')
+    plt.grid(True)
+    plt.show()
+        
 def plot_block_time_delta():
     #block_rows : Array of rows
 
@@ -133,6 +159,7 @@ def plot_rbcast_overhead():
 
 if __name__ == '__main__':
     plot_latency_metrics()
+    plot_dag_progress_rate()
     plot_block_time_delta()
     plot_unblock_time_delta()
     plot_rbcast_overhead()

@@ -1,7 +1,7 @@
 SERVERS=("54.215.43.60" "34.201.142.18" "52.74.244.78" "18.132.44.229")
 USERNAME="ec2-user"
 LOCAL_PATH="/Users/taanyanithyaanand/Downloads/DSLab/DecentralizedCDN/plot_metrics/"
-REMOTE_PATH="/home/ec2-user/metrics2/DCDN_Node_Configuration/metrics/"
+REMOTE_PATH="/home/ec2-user/gpc/metrics/"
 SSH_KEY_DIR="/Users/taanyanithyaanand/Downloads/DSLab"
 KEYS=("DCDN.pem" "dcdn-us-east-1.pem" "dcdn-ap-southeast-1.pem" "dcdn-eu-west2.pem")
 
