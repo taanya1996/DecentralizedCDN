@@ -54,6 +54,7 @@ def plot_dag_progress_rate():
                 data_points.append(counter)
                 counter += 1
                 time_delta.append(row[0])
+            print(f"Average time to progress round for node {i}: {sum(time_delta)/len(time_delta)}")
             min_time_delta = min(min_time_delta, min(time_delta))
             max_time_delta = max(max_time_delta, max(time_delta))
             plt.plot(data_points, time_delta, marker = 'o', linestyle='-', color=colors[i-1])
@@ -85,6 +86,7 @@ def plot_block_time_delta():
                 data_points.append(counter)
                 counter += 1
                 time_delta.append(row[-1])
+            print(f"Average time delay to identify and block the IP for node {i}: {sum(time_delta)/len(time_delta)}")
             min_time_delta = min(min_time_delta, min(time_delta))
             max_time_delta = max(max_time_delta, max(time_delta))
             plt.plot(data_points, time_delta, marker = 'o', linestyle='-', color=colors[i-1])
@@ -115,6 +117,7 @@ def plot_unblock_time_delta():
                 data_points.append(counter)
                 counter += 1
                 time_delta.append(row[-1])
+            print(f"Average time delay to identify and block the IP for node {i}: {sum(time_delta)/len(time_delta)}")
             min_time_delta = min(min_time_delta, min(time_delta))
             max_time_delta = max(max_time_delta, max(time_delta))
             plt.plot(data_points, time_delta, marker = 'o', linestyle='-', color=colors[i-1])
