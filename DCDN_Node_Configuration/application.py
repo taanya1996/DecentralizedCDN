@@ -40,6 +40,8 @@ to_unblock_ips = defaultdict() #{vertex_id: Identified_time}
 to_unblock_ips_lock = threading.Lock()
 rbcast_ips = defaultdict() #{vertex_id: time}
 visualize_counter = 1
+dag_round_rate = 0
+dag_rate_arr = []
 
 # Vertices for the DAGRider is above the reliable Broadcast layer.
 DAG = defaultdict(set)
@@ -372,6 +374,8 @@ def DAG_construction_procedure():
     This will be a thread continuously running to build the DAG
     '''
     global dag_round
+    global dag_round_rate
+    global dag_rate_arr
     while (True):
         
         with dag_buffer_lock:
@@ -405,6 +409,16 @@ def DAG_construction_procedure():
                     wave_ready(dag_round//4)
                     
                 dag_round = dag_round +1
+                time_delta = time.time() - dag_round_rate
+                dag_round_rate = time.time() 
+                dag_rate_arr.append(time_delta)
+                
+                if dag_round%20 ==0:
+                    with open(f"metrics/dag_round_rate_{my_node.node_id}.csv", mode="a") as file:
+                        writer = csv.writer(file)
+                        writer.writerows([[item] for item in dag_rate_arr])
+                        dag_rate_arr = []
+                        
                 new_vertex = create_new_vertex(dag_round)
                 reliable_bcast(new_vertex, 'V')
             
@@ -935,9 +949,11 @@ def initiate_DAG_system():
     '''
     Create a new vertex for round 1 with empty block and start the DAG cycle
     '''
-
+    global dag_round_rate
     with dag_round_lock:
         first_vertex = create_new_vertex(dag_round)
+        dag_round_rate = time.time()
+        
     reliable_bcast(first_vertex, 'V')
     
 if __name__ == '__main__':

@@ -16,7 +16,9 @@ for i in "${!SERVERS[@]}"; do
     echo "Deploying to $SERVER"
     ssh -i $SSH_KEY_PATH $USERNAME@$SERVER "sudo rm -rf $REMOTE_PATH/*"
 
-    scp -i $SSH_KEY_PATH -r $LOCAL_PATH $USERNAME@$SERVER:$REMOTE_PATH
+    scp -i $SSH_KEY_PATH -r $LOCAL_PATH/application.py $USERNAME@$SERVER:$REMOTE_PATH
+    scp -i $SSH_KEY_PATH -r $LOCAL_PATH/definitions.py $USERNAME@$SERVER:$REMOTE_PATH
+    scp -i $SSH_KEY_PATH -r $LOCAL_PATH/request_rate_track.py $USERNAME@$SERVER:$REMOTE_PATH
 
     echo "Deployment to $SERVER completed"
 done
