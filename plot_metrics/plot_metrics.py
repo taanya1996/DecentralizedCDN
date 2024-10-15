@@ -34,7 +34,7 @@ def plot_latency_metrics():
     plt.ylim(min_latency - 1, max_latency + 1)
     plt.xlabel('Nodes')
     plt.ylabel('Avg Latency to communicate with nodes.')
-    plt.title(f'Average Latency between {n_nodes} nodes')
+    plt.title(f'Average Latency observed in {n_nodes} nodes')
     plt.grid(True)
     plt.show()
 
