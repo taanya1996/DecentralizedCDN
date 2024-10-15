@@ -21,6 +21,7 @@ import random
 from secretshare import Secret, SecretShare, Share
 import networkx as nx
 import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
 
 app = Flask(__name__)
 logging.basicConfig(level = logging.INFO) 
@@ -632,6 +633,8 @@ def wave_ready(w):
             leader_stack.push(leader_vertex_prime)
             leader_vertex = leader_vertex_prime
     decided_wave = w
+    if len(leader_stack)>1:
+        visualize_dag()
     order_vertices(leader_stack)
     
 def order_vertices(leader_stack):
@@ -669,7 +672,8 @@ def order_vertices(leader_stack):
                     if not file_exists:
                         writer.writerow(['Nnodes', 'TimeIdentified', 'TimeBlocked', 'TimeDelta'])                    
                     writer.writerow([my_node.total_nodes, identified_time, block_time, block_time-identified_time])
-        
+                visualize_dag()
+                
     unblock_file_name = f"metrics/unblock_time_delta_node_{my_node.node_id}.csv"
     file_exists = os.path.exists(unblock_file_name)
     
@@ -683,7 +687,8 @@ def order_vertices(leader_stack):
                     if not file_exists:
                         writer.writerow(['Nnodes', 'TimeIdentified', 'TimeUnblocked', 'TimeDelta'])                    
                     writer.writerow([my_node.total_nodes, identified_time, unblock_time, unblock_time-identified_time])
-    
+                visualize_dag()
+                
     request_rate_track.update_blocklist(my_node.ips_to_block)
     
 def a_deliver(vertex):
@@ -908,9 +913,18 @@ def visualize_dag():
     nx.draw_networkx_edges(G, pos, edgelist=strong_edges, edge_color='blue')
     
     weak_edges = [(u, v) for u, v, d in G.edges(data=True) if d['edge_type'] == 'weak']
-    nx.draw_networkx_edges(G, pos, edgelist=weak_edges, edge_color='yellow', style='dashed')
+    nx.draw_networkx_edges(G, pos, edgelist=weak_edges, edge_color='lightgrey', style='dashed')
             
     plt.title('DAG of vertices')
+    
+    # Create custom lines for the legend to represent what each line style means
+    strong_edge_legend = mlines.Line2D([], [], color='blue', linestyle='solid', label='Strong Edge')
+    weak_edge_legend = mlines.Line2D([], [], color='lightgrey', linestyle='dashed',  label='Weak Edge')
+
+    # Add the legend to the plot
+    plt.legend(handles=[strong_edge_legend, weak_edge_legend], loc='upper left')
+    
+    # plt.tight_layout()
     plt.savefig(f"plot_node{my_node.node_id}_{visualize_counter}.png")
     visualize_counter +=1
     logging.info("DAG visualization completed")
