@@ -39,6 +39,7 @@ to_block_ips_lock = threading.Lock()
 to_unblock_ips = defaultdict() #{vertex_id: Identified_time}
 to_unblock_ips_lock = threading.Lock()
 rbcast_ips = defaultdict() #{vertex_id: time}
+vertex_time_delta =  defaultdict(list) #{vertex_id: [vertex_creation_time, time_for_rbcast, time_to_commit, time_for_consensus]}
 visualize_counter = 1
 dag_round_rate = 0
 dag_rate_arr = []
@@ -256,17 +257,9 @@ def deliver_vertex(message):
     my_node.delivered_messages.add(message['id'])
     
     #Identify the time_delta for reliable_bcast
-    os.makedirs("metrics", exist_ok=True)
-    rbcast_time_delta_filename = f"metrics/rbcast_time_delta_{my_node.node_id}.csv"
-    file_exists = os.path.exists(rbcast_time_delta_filename)
     if new_vertex.source == my_node.node_id:
-        with open(rbcast_time_delta_filename, mode='a', newline='') as file:
-            writer = csv.writer(file)
-            time_delta = time.time() - rbcast_ips[new_vertex.vertex_id]
-            rbcast_ips.pop(new_vertex.vertex_id)
-            if not file_exists:
-                writer.writerow(['rbcast_time_delta'])                    
-            writer.writerow([time_delta])
+        time_delta = time.time() - vertex_time_delta[new_vertex.vertex_id][0]
+        vertex_time_delta[new_vertex.vertex_id].append(time_delta)
        
     #vertex is constructed. Deliver it to the DAG Layer
     r_delivery_to_DAG(new_vertex)
@@ -441,14 +434,16 @@ def create_new_vertex(round):
     if(round == 1):
         #round1 will not reference anything.
         new_vertex =  definitions.Vertex(vertex_id, round, source, block, [], [])
-        rbcast_ips[vertex_id] = time.time()
+        # rbcast_ips[vertex_id] = time.time()
+        vertex_time_delta[vertex_id].append(time.time())
         return new_vertex
     strong_edges = list(DAG[round-1])
     logging.info(f'No of strong edges for the vertex {vertex_id}: {len(strong_edges)}')
     new_vertex = definitions.Vertex(vertex_id,round, source, block, strong_edges)
     #set weak edges
     set_weak_edges(new_vertex)
-    rbcast_ips[vertex_id] = time.time()
+    # rbcast_ips[vertex_id] = time.time()
+    vertex_time_delta[vertex_id].append(time.time())
     return new_vertex
     
 
@@ -670,9 +665,29 @@ def order_vertices(leader_stack):
                 dag_vertices_ids_delivered.add(vertex.vertex_id)
                 delivered_dag_vertices.append(vertex)
         print()
-        
+          
     os.makedirs("metrics", exist_ok=True)
     
+    vertex_time_delta_file_name = f"metrics/vertex_time_delta_node_{my_node.node_id}.csv"
+    file_exists = os.path.exists(vertex_time_delta_file_name)
+    
+    with open(vertex_time_delta_file_name, mode="a", newline='') as file:
+        writer = csv.writer(file)
+        if not file_exists:
+            writer.writerow(['StartTime', 'TimeDeltaRbcast', 'TotalTimeDeltaCommit', 'TimeDeltaConsensus'])
+        
+        # print(f"Vertex_time_delta during ordering: {vertex_time_delta}" )
+        for vertex_id in dag_vertices_ids_delivered:
+            if vertex_id in vertex_time_delta:
+                current_time = time.time()
+                total_time_delta = current_time - vertex_time_delta[vertex_id][0]
+                vertex_time_delta[vertex_id].append(total_time_delta)
+
+                consensus_time_delta = total_time_delta- vertex_time_delta[vertex_id][1]
+                vertex_time_delta[vertex_id].append(consensus_time_delta)
+                writer.writerow(vertex_time_delta[vertex_id])
+                vertex_time_delta.pop(vertex_id)
+            
     block_file_name = f"metrics/block_time_delta_node_{my_node.node_id}.csv"
     file_exists = os.path.exists(block_file_name)
     
