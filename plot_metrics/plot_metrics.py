@@ -138,7 +138,7 @@ def plot_rbcast_overhead():
     max_time_delta =  -1
     
     for i in range(1, n_nodes+1):
-        file_name = f"metrics/rbcast_time_delta_{i}.csv"
+        file_name = f"metrics/vertex_time_delta_node_{i}.csv"
         data_points = []
         time_delta = []
         with open(file_name, "r") as file:
@@ -149,7 +149,7 @@ def plot_rbcast_overhead():
                 row = [int(val) if val.isdigit() else float(val) if val.replace('.','').isdigit() else val for val in row]
                 data_points.append(counter)
                 counter +=1
-                time_delta.append(row[-1])
+                time_delta.append(row[1])
             min_time_delta = min(min_time_delta, min(time_delta))
             max_time_delta = max(max_time_delta, max(time_delta))
             plt.plot(data_points, time_delta, marker = 'o', linestyle='-', color=colors[i-1])
@@ -159,6 +159,36 @@ def plot_rbcast_overhead():
     plt.title(f'Reliable Broadcast overhead in a system of {n_nodes} nodes')
     plt.grid(True)
     plt.show()
+    
+def plot_vertex_commitment_time_breakdown():
+    counter = 1
+    colors = ['blue', 'green', 'red', 'purple']
+    
+    for i in range(1, n_nodes+1):
+        file_name = f"metrics/vertex_time_delta_node_{i}.csv"
+        data_points = []
+        total_time_delta = []
+        rbcast_time_delta = []
+        consensus_time_delta = []
+        with open(file_name, "r") as file:
+            csv_reader = csv.reader(file)
+            #Skip reading header
+            next(csv_reader)
+            for row in csv_reader:
+                row = [int(val) if val.isdigit() else float(val) if val.replace('.','').isdigit() else val for val in row]
+                data_points.append(counter)
+                counter += 1
+                total_time_delta.append(row[2])
+                rbcast_time_delta.append(row[1])
+                consensus_time_delta.append(row[-1])
+            plt.bar(data_points,rbcast_time_delta, label="Rbcast Time Delta")
+            plt.bar(data_points, consensus_time_delta, bottom=rbcast_time_delta, label="Consensus Time Delta")
+            
+    plt.xlabel("Datapoints for vertices")
+    plt.ylabel("Time Breakdown")
+    plt.title("Time breakdown for vertex to be committed.")
+    plt.show()
+    
 
 if __name__ == '__main__':
     plot_latency_metrics()
@@ -166,3 +196,4 @@ if __name__ == '__main__':
     plot_block_time_delta()
     plot_unblock_time_delta()
     plot_rbcast_overhead()
+    plot_vertex_commitment_time_breakdown()
