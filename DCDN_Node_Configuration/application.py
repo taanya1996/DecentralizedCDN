@@ -553,8 +553,8 @@ def compute_global_coin(wave):
     if combined_secret:
         combined_secret = sum([ord(char) for char in str(combined_secret)])
         leader = (combined_secret % my_node.total_nodes) + 1
-        if leader == 3:
-            leader = random.choice([1,2,4])
+        # if leader == 3:
+        #     leader = random.choice([1,2,4])
         my_node.leaders[wave] = leader
         
 
