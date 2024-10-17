@@ -183,6 +183,7 @@ def plot_vertex_commitment_time_breakdown():
                 consensus_time_delta.append(row[-1])
             plt.bar(data_points,rbcast_time_delta, label="Rbcast Time Delta")
             plt.bar(data_points, consensus_time_delta, bottom=rbcast_time_delta, label="Consensus Time Delta")
+            print(f"Average Consensus Time: {sum(consensus_time_delta)/len(consensus_time_delta)}")
             
     plt.xlabel("Datapoints for vertices")
     plt.ylabel("Time Breakdown")
@@ -191,9 +192,9 @@ def plot_vertex_commitment_time_breakdown():
     
 
 if __name__ == '__main__':
-    plot_latency_metrics()
-    plot_dag_progress_rate()
-    plot_block_time_delta()
-    plot_unblock_time_delta()
-    plot_rbcast_overhead()
+    # plot_latency_metrics()
+    # plot_dag_progress_rate()
+    # plot_block_time_delta()
+    # plot_unblock_time_delta()
+    # plot_rbcast_overhead()
     plot_vertex_commitment_time_breakdown()
