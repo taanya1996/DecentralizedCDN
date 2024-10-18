@@ -184,6 +184,7 @@ def plot_vertex_commitment_time_breakdown():
             plt.bar(data_points,rbcast_time_delta, label="Rbcast Time Delta")
             plt.bar(data_points, consensus_time_delta, bottom=rbcast_time_delta, label="Consensus Time Delta")
             print(f"Average Consensus Time: {sum(consensus_time_delta)/len(consensus_time_delta)}")
+            print(f"Average Reliable Bcast Time: {sum(rbcast_time_delta)/len(rbcast_time_delta)}")
             
     plt.xlabel("Datapoints for vertices")
     plt.ylabel("Time Breakdown")
