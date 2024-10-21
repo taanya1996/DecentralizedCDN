@@ -488,65 +488,10 @@ def combine_secret_shares(wave):
 def get_secret(wave):
     return my_node.secret_share.secrets.get(wave, None)
 
-def sign( node_id, wave, private_key_share):
-        #here node_id =  my_node.node_id
-        message = str(wave).encode()
-        signature_share = private_key_share.sign(message)
-        ps_message = definitions.PS_Message(node_id, wave, signature_share)
-        reliable_bcast(ps_message, 'TS')
-    
-
-def receive_signature(node_id, wave, signature_share):
-    my_node.threshold_signature.signatures[wave][node_id].append(signature_share)
-    
-    if len(my_node.threshold_signature.signatures[wave]) >= my_node.threshold_signature.threshold:
-        #combine the signatures
-        combine_signatures(wave)
-        #If signature is successfully combined, then compute global perfect coin.
-        if get_threshold_signature(wave):
-            compute_global_coin(wave)
-    
-
-def lagrange_coefficient(i, node_ids):
-    '''
-    node_ids = subset of node_ids of size equal to threshold
-    i = id of one of the nodes.
-    '''
-    coeff = 1
-    for j in node_ids:
-        if i!=j:
-            numerator = j+1
-            denominator = j + 1 - (i + 1)
-            coeff *= numerator * pow(denominator, -1, SECP256k1.order)
-            coeff *= SECP256k1.order
-    return coeff
-    
-
-def combine_signatures(wave):
-    if wave not in my_node.threshold_signature.threshold_signatures:
-        node_ids = list(my_node.threshold_signature.signatures[wave].keys())[:my_node.threshold_signature.threshold]
-        combined_signature = 0
-        for id in node_ids:
-            coeff = lagrange_coefficient(id, node_ids)
-            combined_signature += string_to_number(my_node.threshold_signature.signatures[wave][id][0])* coeff
-        
-        my_node.threshold_signature.threshold_signatures[wave] = number_to_string(combined_signature % SECP256k1.order, SECP256k1.order)
-        
-
-def get_threshold_signature(wave):
-    return my_node.threshold_signature.threshold_signatures.get(wave, None)
 
 def compute_global_coin(wave):
     if wave in my_node.leaders:
         return #Global perfect coin is already computed and leader is chosen for the wave.
-    
-    # wave_threshold_signature = get_threshold_signature(wave)
-    
-    # if wave_threshold_signature:
-    #     h = sha256(wave_threshold_signature).hexdigest()
-    #     combined_value = int(h, 16)
-    #     leader = (combined_value % my_node.total_nodes) + 1
-    #     my_node.leaders[wave] = leader
     
     combined_secret = get_secret(wave)
     
@@ -567,11 +512,7 @@ def choose_leader(w):
     #TODO check logic
     if my_node.leaders.get(w, None):
         return my_node.leaders[w]
-    #else if the node has not generated the partial signature, generate it
-    
-    # if not my_node.threshold_signature.signatures.get(w, None) or not my_node.threshold_signature.signatures[w].get(my_node.node_id, None):
-    #     sign(my_node.node_id, w, my_node.private_key_share)
-    
+
     if not my_node.secret_share.secret_shares.get(w, None) or not my_node.secret_share.secret_shares[w].get(my_node.node_id, None):
         generate_secret_share(my_node.node_id, w)
     
@@ -1013,10 +954,6 @@ if __name__ == '__main__':
         option = input("Are we good to initiate the DAG system? Y/N")
     
     initiate_DAG_system()
-        
-    # for i in range(1,5):
-    #     time.sleep(30)
-    #     visualize_dag()
         
     # Keep the main thread alive
     flask_thread.join()
