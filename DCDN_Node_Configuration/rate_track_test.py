@@ -14,7 +14,7 @@ def send_requests(target_url, uri_list, total_requests):
     for i in range(1, total_requests+1):
         try:
             response = requests.get(target_url+uri_list[ind])
-            print(f"Request {i}: Status Code {response.status_code}")
+            print(f"{time.asctime()} Request {i}: Status Code {response.status_code}")
         except requests.exceptions.RequestException as e:
             print(f"Request {i}: Failed with error {e}")
         ind = (ind + 1)%total_uri
@@ -23,13 +23,10 @@ def send_requests(target_url, uri_list, total_requests):
 if __name__ == "__main__":
     target_ips = ['54.215.43.60','34.201.142.18','52.74.244.78','18.132.44.229']
     uri_list = ['/', '/project_overview', '/problem_statement', '/architecture', '/application_components', '/metrics', '/testing' ]# Replace with your desired endpoint
-    request_count = 300  # Number of requests
+    request_count = 1000  # Number of requests
 
-    for ip in target_ips:
-        print(f"Targeting IP : {ip}")
-        send_requests('http://'+ ip, uri_list, request_count)
-        time.sleep(220)
-        send_requests('http://'+ ip, uri_list, request_count)
-        time.sleep(220)
-        send_requests('http://'+ ip, uri_list, request_count)
-        time.sleep(220)
+    ip = target_ips[0]
+    
+    print(f"Targeting IP : {ip}")
+    send_requests('http://'+ ip, uri_list, request_count)
+    
